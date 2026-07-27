@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JB APUL v3</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f8fafc; color: #1e293b; font-family: 'Inter', sans-serif; }
+    a { color: inherit; text-decoration: none; }
+
+    /* Layout */
+    .app { display: flex; min-height: 100vh; }
+    .sidebar { width: 260px; background: #fff; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; padding: 20px 14px; position: fixed; height: 100vh; overflow-y: auto; box-shadow: 2px 0 12px rgba(0,0,0,.04); }
+    .main { flex: 1; margin-left: 260px; display: flex; flex-direction: column; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; border-bottom: 1px solid #e2e8f0; background: #fff; position: sticky; top: 0; z-index: 40; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+    .content { flex: 1; padding: 28px; overflow: auto; background: #f8fafc; }
+
+    /* Brand */
+    .brand { display: flex; align-items: center; gap: 12px; padding: 16px; margin-bottom: 24px; }
+    .logo { width: 42px; height: 42px; border-radius: 14px; background: linear-gradient(135deg, #2563eb, #7c3aed); display: grid; place-items: center; font-weight: 900; font-size: 16px; color: #fff; box-shadow: 0 4px 16px rgba(37,99,235,.3); }
+    .brand-text { font-size: 16px; font-weight: 800; color: #0f172a; }
+    .brand-sub { font-size: 11px; color: #94a3b8; font-weight: 600; }
+
+    /* Nav */
+    .nav-group { margin-bottom: 8px; }
+    .nav-label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; padding: 12px 12px 6px; }
+    .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; color: #64748b; margin-bottom: 2px; }
+    .nav-item:hover { background: #f1f5f9; color: #1e293b; }
+    .nav-item.active { background: linear-gradient(135deg, #eff6ff, #f5f3ff); color: #2563eb; border: 1px solid #bfdbfe; font-weight: 700; }
+    .nav-icon { width: 20px; text-align: center; font-size: 15px; }
+
+    /* Channel Info */
+    .channel-box { margin-top: auto; padding: 16px; background: #f8fafc; border-radius: 14px; border: 1px solid #e2e8f0; }
+    .channel-box .label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; }
+    .channel-box .value { font-size: 24px; font-weight: 900; color: #0f172a; margin-top: 4px; }
+    .channel-box .sub { font-size: 11px; color: #94a3b8; }
+
+    /* Topbar */
+    .topbar-left { display: flex; align-items: center; gap: 16px; }
+    .topbar-right { display: flex; gap: 10px; }
+    .page-title { font-size: 18px; font-weight: 800; color: #0f172a; }
+    .ch-select { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
+    .ch-select .label { font-size: 11px; font-weight: 700; color: #64748b; }
+    .ch-select select { background: transparent; border: none; outline: none; color: #0f172a; font-weight: 700; font-size: 13px; cursor: pointer; }
+
+    /* Buttons */
+    .btn { padding: 10px 18px; border-radius: 10px; border: 1px solid #dbeafe; background: #eff6ff; color: #2563eb; font-weight: 700; font-size: 13px; cursor: pointer; transition: all .2s; }
+    .btn:hover { background: #dbeafe; }
+    .btn-primary { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(37,99,235,.25); }
+    .btn-ghost { padding: 10px 18px; border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; font-weight: 700; font-size: 13px; cursor: pointer; }
+    .btn-danger { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #dc2626, #ef4444); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+    .btn-success { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #059669, #10b981); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+    .btn-sm { font-size: 11px; padding: 6px 12px; border-radius: 8px; }
+
+    /* Cards */
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+
+    /* Stats */
+    .stats-row { display: grid; gap: 16px; margin-bottom: 24px; }
+    .stats-4 { grid-template-columns: repeat(4, 1fr); }
+    .stats-3 { grid-template-columns: repeat(3, 1fr); }
+    .stat-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; position: relative; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed); }
+    .stat-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; }
+    .stat-value { font-size: 32px; font-weight: 900; margin-top: 8px; color: #0f172a; }
+    .stat-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+
+    /* Progress */
+    .progress { width: 100%; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .progress-bar { height: 100%; border-radius: 3px; transition: width .5s ease; }
+    .bg-green { background: linear-gradient(90deg, #059669, #10b981); }
+    .bg-yellow { background: linear-gradient(90deg, #d97706, #f59e0b); }
+    .bg-red { background: linear-gradient(90deg, #dc2626, #ef4444); }
+    .bg-blue { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+
+    /* Badges */
+    .badge { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; display: inline-block; }
+    .badge-active { background: #dcfce7; color: #166534; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+    .badge-processing { background: #dbeafe; color: #1e40af; }
+    .badge-done { background: #dcfce7; color: #166534; }
+    .badge-failed { background: #fee2e2; color: #991b1b; }
+    .badge-running { background: #dcfce7; color: #166534; }
+    .badge-stopped { background: #f1f5f9; color: #475569; }
+    .badge-paused { background: #fef3c7; color: #92400e; }
+    .badge-scheduled { background: #dbeafe; color: #1e40af; }
+    .badge-key { background: #dcfce7; color: #166534; }
+    .badge-proxy { background: #dbeafe; color: #1e40af; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 14px 16px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 2px solid #e2e8f0; background: #f8fafc; }
+    td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+    tr:hover td { background: #f8fafc; }
+
+    /* Grid */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .grid-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+
+    /* Channel Cards */
+    .ch-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; transition: all .3s; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+    .ch-card:hover { border-color: #93c5fd; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+    .ch-header { display: flex; align-items: center; gap: 14px; padding: 20px; }
+    .ch-avatar { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-weight: 900; font-size: 18px; color: #fff; }
+    .ch-name { font-weight: 700; font-size: 16px; color: #0f172a; }
+    .ch-id { font-size: 11px; color: #94a3b8; font-family: monospace; }
+    .ch-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; padding: 0 20px 16px; }
+    .ch-stat { background: #f8fafc; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #f1f5f9; }
+    .ch-stat .label { font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
+    .ch-stat .value { font-size: 18px; font-weight: 800; margin-top: 4px; color: #0f172a; }
+    .ch-actions { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 20px 20px; }
+
+    /* Forms */
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px 14px; font-size: 13px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; color: #0f172a; outline: none; transition: border-color .2s; }
+    .form-group input:focus, .form-group select:focus { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
+    .form-group select option { background: #fff; color: #0f172a; }
+
+    /* Modal */
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.3); backdrop-filter: blur(4px); display: grid; place-items: center; z-index: 50; }
+    .modal.hidden { display: none; }
+    .modal-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 28px; width: 100%; max-width: 500px; max-height: 85vh; overflow: auto; box-shadow: 0 24px 48px rgba(0,0,0,.15); }
+    .modal-box h3 { font-size: 18px; font-weight: 800; margin-bottom: 20px; color: #0f172a; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
+
+    /* Section */
+    .section { padding: 20px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+    .section-title { font-size: 12px; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 14px; }
+
+    /* Empty */
+    .empty { background: #fff; border: 2px dashed #e2e8f0; border-radius: 16px; padding: 48px; text-align: center; color: #94a3b8; }
+    .empty-icon { font-size: 48px; margin-bottom: 16px; }
+
+    /* Toggle */
+    .toggle { width: 40px; height: 22px; border-radius: 11px; display: flex; align-items: center; cursor: pointer; padding: 2px; transition: all .3s; }
+    .toggle-on { background: linear-gradient(135deg, #059669, #10b981); }
+    .toggle-off { background: #e2e8f0; }
+    .toggle-dot { width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: all .3s; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+    .toggle-on .toggle-dot { transform: translateX(18px); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+    /* Animations */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn .3s ease; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { margin-left: 0; }
+      .stats-4 { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">YT</div>
+        <div><div class="brand-text">JB APUL v3</div><div class="brand-sub">YouTube Automation</div></div>
+      </div>
+      <nav>
+        <div class="nav-group">
+          <div class="nav-label">Menu</div>
+          <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}"><span class="nav-icon">📊</span> Dashboard</a>
+          <a href="/media" class="nav-item {% if page == 'media' %}active{% endif %}"><span class="nav-icon">🗂️</span> Media Library</a>
+          <a href="/production" class="nav-item {% if page == 'production' %}active{% endif %}"><span class="nav-icon">🎬</span> Production</a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">Upload</div>
+          <a href="/uploads" class="nav-item {% if page == 'uploads' %}active{% endif %}"><span class="nav-icon">📤</span> Upload</a>
+          <a href="/monitor-upload" class="nav-item {% if page == 'monitor-upload' %}active{% endif %}"><span class="nav-icon">📡</span> Monitor Upload</a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">Livestream</div>
+          <a href="/live" class="nav-item {% if page == 'live' %}active{% endif %}"><span class="nav-icon">🔴</span> Start Live</a>
+          <a href="/monitor-live" class="nav-item {% if page == 'monitor-live' %}active{% endif %}"><span class="nav-icon">📺</span> Monitor Livestream</a>
+          <a href="/estafet" class="nav-item {% if page == 'estafet' %}active{% endif %}"><span class="nav-icon">🎬</span> Estafet Mode</a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">Shorts</div>
+          <a href="/shorts" class="nav-item {% if page == 'shorts' %}active{% endif %}"><span class="nav-icon">✂️</span> Shorts Generator</a>
+          <a href="/monitor-shorts" class="nav-item {% if page == 'monitor-shorts' %}active{% endif %}"><span class="nav-icon">📊</span> Monitor Shorts</a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">Automation</div>
+          <a href="/pipeline" class="nav-item {% if page == 'pipeline' %}active{% endif %}"><span class="nav-icon">⚡</span> Pipeline</a>
+        </div>
+      </nav>
+      <div class="channel-box">
+        <div class="label">Channels</div>
+        <div class="value" id="ch-count">0</div>
+        <div class="sub">Total channels</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="page-title">{% block title %}📊 Dashboard{% endblock %}</div>
+          <div class="ch-select">
+            <span class="label">Channel:</span>
+            <select id="active-channel" onchange="setActiveChannel(this.value)">
+              <option value="">Semua Channel</option>
+            </select>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button onclick="showModal('modal-add')" class="btn">+ Tambah Channel</button>
+        </div>
+      </header>
+      <div class="content fade-in">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Channel Modal -->
+  <div id="modal-add" class="modal hidden" onclick="if(event.target===this)hideModal('modal-add')">
+    <div class="modal-box">
+      <h3>➕ Tambah Channel</h3>
+      <div class="form-group">
+        <label>Channel Name *</label>
+        <input type="text" id="new-name" placeholder="Nama channel YouTube">
+      </div>
+      <div class="form-group">
+        <label>Niche</label>
+        <input type="text" id="new-niche" placeholder="Relaxation, Music, dll">
+      </div>
+      <div class="form-group">
+        <label>YouTube Channel ID</label>
+        <input type="text" id="new-youtube-id" placeholder="UC... (opsional)">
+      </div>
+      <div class="modal-actions">
+        <button onclick="hideModal('modal-add')" class="btn-ghost">Batal</button>
+        <button onclick="addChannel()" class="btn-primary">✨ Tambah</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function api(path, opts = {}) {
+      const r = await fetch('/api' + path, { headers: {'Content-Type':'application/json',...opts.headers}, ...opts });
+      return r.json();
+    }
+
+    let channels = [];
+    let activeChannelId = localStorage.getItem('jb_ch') || null;
+
+    async function loadChannels() {
+      channels = await api('/channels');
+      const sel = document.getElementById('active-channel');
+      sel.innerHTML = '<option value="">Semua Channel</option>';
+      channels.forEach(c => {
+        sel.innerHTML += `<option value="${c.id}" ${activeChannelId==c.id?'selected':''}>#${c.id} — ${c.name}</option>`;
+      });
+      document.getElementById('ch-count').textContent = channels.length;
+      return channels;
+    }
+
+    function setActiveChannel(id) {
+      activeChannelId = id || null;
+      localStorage.setItem('jb_ch', id);
+      if (typeof onChannelChange === 'function') onChannelChange();
+    }
+
+    function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    async function addChannel() {
+      const name = document.getElementById('new-name').value.trim();
+      if (!name) return alert('Nama channel wajib diisi');
+      await api('/channels', { method:'POST', body: JSON.stringify({
+        name, niche: document.getElementById('new-niche').value,
+        youtube_channel_id: document.getElementById('new-youtube-id').value || null
+      })});
+      hideModal('modal-add');
+      document.getElementById('new-name').value = '';
+      document.getElementById('new-niche').value = '';
+      document.getElementById('new-youtube-id').value = '';
+      await loadChannels();
+      if (typeof onChannelChange === 'function') onChannelChange();
+    }
+
+    async function deleteChannel(id) {
+      if (!confirm('Hapus channel dan semua data?')) return;
+      await api('/channels/'+id, {method:'DELETE'});
+      await loadChannels();
+      if (typeof onChannelChange === 'function') onChannelChange();
+    }
+
+    const fmt = n => n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n);
+    const fmtBytes = b => { if(b<=0)return'0 B'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),u.length-1); return(b/Math.pow(1024,i)).toFixed(i?1:0)+' '+u[i]; };
+    const badge = (s) => `<span class="badge badge-${s}">${s}</span>`;
+    const progressColor = p => p>80?'red':p>50?'yellow':'green';
+
+    document.addEventListener('DOMContentLoaded', async () => { await loadChannels(); });
+    document.addEventListener('click', e => { if (e.target.classList.contains('modal')) e.target.classList.add('hidden'); });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

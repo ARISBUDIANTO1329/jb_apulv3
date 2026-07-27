@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block title %}Estafet Mode{% endblock %}
+{% block content %}
+<div x-data="estafetPage()" x-init="init()" class="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-5">
+
+    {# ── LEFT: Estafet Form ── #}
+    <div class="space-y-5">
+
+        <div x-show="alertMsg" x-cloak
+             class="p-4 rounded-xl text-sm font-semibold"
+             :class="alertType === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'"
+             x-text="alertMsg"></div>
+
+        {# Stats #}
+        <div class="grid grid-cols-4 gap-3">
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold text-purple-600" x-text="availableCount"></div>
+                <div class="text-[10px] text-purple-500 font-bold uppercase">Available Videos</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold text-blue-600" x-text="selectedCount"></div>
+                <div class="text-[10px] text-blue-500 font-bold uppercase">Selected</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold text-slate-900" x-text="form.duration_hours * selectedCount"></div>
+                <div class="text-[10px] text-slate-400 font-bold uppercase">Total Hours</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold text-emerald-600" x-text="tokenStatus === 'valid' ? 'OK' : tokenStatus === 'expired' ? 'EXP' : 'NONE'"></div>
+                <div class="text-[10px] text-slate-400 font-bold uppercase">OAuth</div>
+            </div>
+        </div>
+
+        {# Form Card #}
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
+            <div class="flex items-center gap-3 pb-4 border-b border-slate-100">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 grid place-items-center text-white text-lg">🎬</div>
+                <div>
+                    <h2 class="text-base font-extrabold text-slate-900">Estafet Mode</h2>
+                    <p class="text-xs text-slate-400">Multi-video livestream dengan jeda otomatis</p>
+                </div>
+            </div>
+
+            {# Channel #}
+            <div class="form-group">
+                <label>Channel</label>
+                <select x-model="form.channel_id" @change="onChannelChange()" class="!text-sm">
+                    <template x-for="ch in channels" :key="ch.id">
+                        <option :value="ch.id" x-text="'#' + ch.id + ' — ' + ch.name"></option>
+                    </template>
+                </select>
+            </div>
+
+            {# Title #}
+            <div class="form-group">
+                <label>Judul Estafet</label>
+                <input type="text" x-model="form.title" placeholder="Contoh: Relaxing Music Marathon" class="!text-sm">
+            </div>
+
+            {# Duration & Break #}
+            <div class="grid grid-cols-2 gap-4">
+                <div class="form-group">
+                    <label>Durasi per Video (jam)</label>
+                    <input type="number" x-model.number="form.duration_hours" min="1" max="72" class="!text-sm">
+                </div>
+                <div class="form-group">
+                    <label>Jeda antar Video (menit)</label>
+                    <input type="number" x-model.number="form.break_minutes" min="0" max="360" class="!text-sm">
+                </div>
+            </div>
+
+            {# Quality #}
+            <div class="form-group">
+                <label>Quality</label>
+                <select x-model="form.quality" class="!text-sm">
+                    <option value="low">Low (720p)</option>
+                    <option value="medium">Medium (1080p)</option>
+                    <option value="high">High (1080p60)</option>
+                </select>
+            </div>
+
+            {# Audio Options #}
+            <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" x-model="form.use_mp3" class="w-4 h-4 rounded">
+                    <span class="text-sm font-semibold text-slate-700">Gunakan MP3 (acak)</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" x-model="form.use_sfx" class="w-4 h-4 rounded">
+                    <span class="text-sm font-semibold text-slate-700">Gunakan SFX (acak)</span>
+                </label>
+            </div>
+
+            {# Video Selection with Thumbnails #}
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <label class="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                        Pilih Video dari Livestream Ready
+                        <span x-show="loadingVideos" class="ml-2 text-blue-500">Loading...</span>
+                    </label>
+                    <button @click="selectAll()" x-show="availableVideos.length > 0" class="text-xs font-bold text-blue-600 hover:text-blue-700">Select All</button>
+                </div>
+                <div class="max-h-96 overflow-y-auto bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2">
+                    <template x-if="loadingVideos">
+                        <div class="text-center py-8 text-slate-400 text-sm">Loading videos...</div>
+                    </template>
+                    <template x-if="!loadingVideos && availableVideos.length === 0">
+                        <div class="text-center py-8 text-slate-400 text-sm">
+                            <div class="text-3xl mb-2">📭</div>
+                            <div>Tidak ada video di folder livestream-ready</div>
+                            <div class="text-xs mt-1">Upload video dulu di Media Library → Livestream Ready</div>
+                        </div>
+                    </template>
+                    <template x-for="video in availableVideos" :key="video.id">
+                        <div @click="toggleVideo(video)"
+                             class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all"
+                             :class="isSelected(video.id) ? 'bg-blue-50 border border-blue-300' : 'bg-white border border-slate-200 hover:border-slate-300'">
+                            <input type="checkbox"
+                                   :checked="isSelected(video.id)"
+                                   @click.stop="toggleVideo(video)"
+                                   class="w-4 h-4 rounded pointer-events-none flex-shrink-0">
+                            <div class="w-20 h-14 bg-slate-200 rounded-lg overflow-hidden flex-shrink-0">
+                                <template x-if="video.thumbnail_url">
+                                    <img :src="video.thumbnail_url" class="w-full h-full object-cover" :alt="video.title || video.filename">
+                                </template>
+                                <template x-if="!video.thumbnail_url">
+                                    <div class="w-full h-full grid place-items-center text-slate-400 text-xs">🎬</div>
+                                </template>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-sm font-semibold text-slate-700 truncate" x-text="video.title || video.filename"></div>
+                                <div class="text-xs text-slate-400 truncate" x-text="video.filename"></div>
+                                <div class="text-xs text-slate-500 mt-1" x-text="formatDuration(video.duration)"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            {# Submit #}
+            <button @click="createEstafet()"
+                    :disabled="submitting || !form.title || selectedCount === 0"
+                    class="w-full py-3 rounded-xl font-bold text-sm text-white transition-all"
+                    :class="submitting || !form.title || selectedCount === 0 ? 'bg-slate-300 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700'">
+                <span x-show="!submitting">🚀 Mulai Estafet</span>
+                <span x-show="submitting">Membuat...</span>
+            </button>
+        </div>
+    </div>
+
+    {# ── RIGHT: Info Panel ── #}
+    <div class="space-y-5">
+        <div class="bg-white rounded-2xl border border-slate-200 p-6">
+            <h3 class="text-sm font-extrabold text-slate-900 mb-4">📋 Cara Kerja Estafet</h3>
+            <div class="space-y-3 text-sm text-slate-600">
+                <div class="flex gap-3">
+                    <div class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 grid place-items-center text-xs font-bold flex-shrink-0">1</div>
+                    <p>Setiap video di-loop selama <strong x-text="form.duration_hours + ' jam'"></strong></p>
+                </div>
+                <div class="flex gap-3">
+                    <div class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 grid place-items-center text-xs font-bold flex-shrink-0">2</div>
+                    <p>Setelah selesai, jeda <strong x-text="form.break_minutes + ' menit'"></strong></p>
+                </div>
+                <div class="flex gap-3">
+                    <div class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 grid place-items-center text-xs font-bold flex-shrink-0">3</div>
+                    <p>Lanjut ke video berikutnya secara otomatis</p>
+                </div>
+                <div class="flex gap-3">
+                    <div class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 grid place-items-center text-xs font-bold flex-shrink-0">4</div>
+                    <p>MP3 & SFX diacak agar tidak monoton</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-200 p-6">
+            <h3 class="text-sm font-extrabold text-purple-900 mb-3">💡 Tips</h3>
+            <ul class="space-y-2 text-xs text-purple-700">
+                <li>• Jeda 1 jam aman untuk YouTube VOD processing</li>
+                <li>• Video otomatis terdeteksi dari folder <code class="bg-white/50 px-1 rounded">livestream-ready</code></li>
+                <li>• Thumbnail & judul diambil dari Media Library</li>
+                <li>• Estafet bisa di-pause/stop anytime dari Monitor Livestream</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+function estafetPage() {
+    return {
+        channels: [],
+        availableVideos: [],
+        form: {
+            channel_id: null,
+            title: '',
+            video_sources: [],
+            duration_hours: 12,
+            break_minutes: 60,
+            quality: 'low',
+            use_mp3: true,
+            use_sfx: true,
+        },
+        submitting: false,
+        loadingVideos: false,
+        alertMsg: '',
+        alertType: 'ok',
+        tokenStatus: 'none',
+
+        async init() {
+            await this.loadChannels();
+            if (this.form.channel_id) {
+                await this.loadVideos();
+            }
+            this.checkToken();
+        },
+
+        async loadChannels() {
+            try {
+                const r = await fetch('/api/channels');
+                this.channels = await r.json();
+                if (this.channels.length > 0 && !this.form.channel_id) {
+                    this.form.channel_id = this.channels[0].id;
+                }
+            } catch (e) {
+                console.error('Failed to load channels:', e);
+            }
+        },
+
+        async onChannelChange() {
+            this.form.video_sources = [];
+            await this.loadVideos();
+        },
+
+        async loadVideos() {
+            if (!this.form.channel_id) return;
+            this.loadingVideos = true;
+            try {
+                const r = await fetch(`/api/media?channel_id=${this.form.channel_id}&group=livestream-ready&per_page=100`);
+                const data = await r.json();
+                this.availableVideos = data.items || [];
+            } catch (e) {
+                console.error('Failed to load videos:', e);
+                this.availableVideos = [];
+            }
+            this.loadingVideos = false;
+        },
+
+        async checkToken() {
+            try {
+                const r = await fetch('/api/auth/token-health');
+                const data = await r.json();
+                if (data.channels && data.channels.length > 0) {
+                    const ch = data.channels.find(c => c.channel_id === this.form.channel_id);
+                    this.tokenStatus = ch && ch.needs_reconnect ? 'expired' : 'valid';
+                }
+            } catch (e) {
+                console.error('Failed to check token:', e);
+            }
+        },
+
+        get availableCount() {
+            return this.availableVideos.length;
+        },
+
+        get selectedCount() {
+            return this.form.video_sources.length;
+        },
+
+        isSelected(videoId) {
+            return this.form.video_sources.includes(videoId);
+        },
+
+        toggleVideo(video) {
+            const idx = this.form.video_sources.indexOf(video.id);
+            if (idx >= 0) {
+                this.form.video_sources.splice(idx, 1);
+            } else {
+                this.form.video_sources.push(video.id);
+            }
+        },
+
+        selectAll() {
+            if (this.form.video_sources.length === this.availableVideos.length) {
+                this.form.video_sources = [];
+            } else {
+                this.form.video_sources = this.availableVideos.map(v => v.id);
+            }
+        },
+
+        formatDuration(seconds) {
+            if (!seconds) return '';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            if (h > 0) return `${h}h ${m}m`;
+            if (m > 0) return `${m}m ${s}s`;
+            return `${s}s`;
+        },
+
+        async createEstafet() {
+            if (!this.form.channel_id) {
+                this.showAlert('Pilih channel dulu', 'err');
+                return;
+            }
+            if (!this.form.title) {
+                this.showAlert('Isi judul estafet', 'err');
+                return;
+            }
+            if (this.form.video_sources.length === 0) {
+                this.showAlert('Pilih minimal 1 video', 'err');
+                return;
+            }
+
+            this.submitting = true;
+            try {
+                const r = await fetch('/api/estafet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        channel_id: this.form.channel_id,
+                        title: this.form.title,
+                        video_ids: this.form.video_sources,
+                        duration_hours: this.form.duration_hours,
+                        break_minutes: this.form.break_minutes,
+                        quality: this.form.quality,
+                        use_mp3: this.form.use_mp3,
+                        use_sfx: this.form.use_sfx,
+                    }),
+                });
+                const data = await r.json();
+                if (data.success) {
+                    this.showAlert('✅ Estafet berhasil dibuat!', 'ok');
+                    this.form.title = '';
+                    this.form.video_sources = [];
+                } else {
+                    this.showAlert(data.detail || 'Gagal membuat estafet', 'err');
+                }
+            } catch (e) {
+                this.showAlert('Error: ' + e.message, 'err');
+            }
+            this.submitting = false;
+        },
+
+        showAlert(msg, type) {
+            this.alertMsg = msg;
+            this.alertType = type;
+            setTimeout(() => this.alertMsg = '', 5000);
+        },
+    };
+}
+</script>
+{% endblock %}

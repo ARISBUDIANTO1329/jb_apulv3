@@ -1,0 +1,7 @@
+psycopg2-binary==2.9.9
+google-api-python-client==2.198.0
+google-auth==2.55.1
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.4.0
+python-dateutil==2.9.0
+httplib2==0.22.0

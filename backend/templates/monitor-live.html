@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %}Monitor Livestream{% endblock %}
+{% block content %}
+<div x-data="monitorLivePage()" x-init="init()" class="space-y-5">
+
+    {# Header #}
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Monitor Livestream</h1>
+            <p class="text-sm text-slate-500 mt-1">Pantau status livestream real-time</p>
+        </div>
+        <div class="flex gap-2">
+            <button @click="checkerGlobal()" class="px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100">🔍 Checker Global</button>
+            <button @click="killGlobal()" class="px-3 py-2 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100">⛔ Kill Global</button>
+        </div>
+    </div>
+
+    {# Engine Status #}
+    <div class="grid grid-cols-3 gap-3">
+      <div class="bg-white rounded-xl border border-slate-200 p-4" style="border-left: 4px solid #10b981;">
+        <div class="text-[10px] text-slate-400 font-bold uppercase">🎬 FFmpeg</div>
+        <div class="text-lg font-extrabold mt-1" id="ffmpeg-status">-</div>
+        <div class="text-[11px] text-slate-500 mt-1" id="ffmpeg-detail">-</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4" style="border-left: 4px solid #3b82f6;">
+        <div class="text-[10px] text-slate-400 font-bold uppercase">⚙️ Worker</div>
+        <div class="text-lg font-extrabold mt-1" id="worker-status">-</div>
+        <div class="text-[11px] text-slate-500 mt-1" id="worker-detail">-</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4" style="border-left: 4px solid #8b5cf6;">
+        <div class="text-[10px] text-slate-400 font-bold uppercase">🐍 Python</div>
+        <div class="text-lg font-extrabold mt-1" id="python-status">-</div>
+        <div class="text-[11px] text-slate-500 mt-1" id="python-detail">-</div>
+      </div>
+    </div>
+
+    {# Stats #}
+    <div class="grid grid-cols-4 gap-3">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 text-center">
+            <div class="text-2xl font-extrabold text-slate-900" x-text="jobs.length"></div>
+            <div class="text-[10px] text-slate-400 font-bold uppercase mt-1">Total Jobs</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 text-center">
+            <div class="text-2xl font-extrabold text-rose-600" x-text="runningCount"></div>
+            <div class="text-[10px] text-rose-500 font-bold uppercase mt-1">Running</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 text-center">
+            <div class="text-2xl font-extrabold text-emerald-600" x-text="scheduledCount"></div>
+            <div class="text-[10px] text-emerald-500 font-bold uppercase mt-1">Scheduled</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 text-center">
+            <div class="text-2xl font-extrabold text-blue-600" x-text="pendingCount"></div>
+            <div class="text-[10px] text-blue-500 font-bold uppercase mt-1">Queue</div>
+        </div>
+    </div>
+
+    {# Health Dashboard #}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="flex items-center justify-between mb-4">
+            <div class="text-sm font-bold text-slate-900">🏥 Health Dashboard</div>
+            <button @click="loadHealth()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <template x-for="ch in healthChannels" :key="ch.channel_id">
+                <div class="p-4 rounded-lg border border-slate-100 hover:bg-slate-50">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-sm font-semibold text-slate-900" x-text="ch.channel_name"></div>
+                        <span class="w-2 h-2 rounded-full" :class="ch.status === 'running' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'"></span>
+                    </div>
+                    <div class="text-xs text-slate-500 mb-2" x-text="ch.status === 'running' ? '🟢 Live' : '⚪ Tidak Ada Live'"></div>
+                    <div x-show="ch.current_job" class="text-xs text-slate-600 mb-2">
+                        <div x-text="ch.current_job?.title || '-'"></div>
+                        <div class="text-[10px] text-slate-400" x-text="(ch.current_job?.bitrate || 0) + ' kbps • ' + (ch.current_job?.fps || 0).toFixed(1) + ' fps'"></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 mt-2">
+                        <div class="text-center p-1 rounded bg-slate-50">
+                            <div class="text-xs font-bold text-slate-900" x-text="ch.total_streams"></div>
+                            <div class="text-[8px] text-slate-400">Streams</div>
+                        </div>
+                        <div class="text-center p-1 rounded bg-slate-50">
+                            <div class="text-xs font-bold text-slate-900" x-text="ch.total_hours + 'h'"></div>
+                            <div class="text-[8px] text-slate-400">Total</div>
+                        </div>
+                    </div>
+                    <div x-show="ch.last_error" class="mt-2 p-1.5 rounded bg-rose-50 text-rose-600 text-[10px] truncate" x-text="ch.last_error"></div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    {# Channel Info #}
+    <div class="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3">
+        <div class="text-[10px] font-bold text-slate-400 uppercase">Channel:</div>
+        <div class="text-sm font-bold text-slate-900" x-text="activeChannel?.name || 'Belum dipilih'"></div>
+        <div class="text-xs text-slate-400" x-text="'(ID: ' + (activeChannel?.id || '-') + ')'"></div>
+        <button @click="loadJobs()" class="ml-auto text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+    </div>
+
+    {# Job Table #}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-sm font-bold text-slate-900 mb-4">Live Jobs</div>
+
+        <div x-show="jobs.length === 0" class="py-12 text-center text-sm text-slate-400">
+            Tidak ada livestream job untuk channel ini.
+        </div>
+
+        <div x-show="jobs.length > 0" class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="border-b border-slate-100">
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">Status</th>
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">ID</th>
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">Judul</th>
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">Quality</th>
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">Durasi</th>
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">Mulai</th>
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">Engine</th>
+                        <th class="text-left py-3 px-3 font-bold text-slate-400 uppercase">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="job in jobs" :key="job.id">
+                        <tr class="border-b border-slate-50 hover:bg-slate-50">
+                            <td class="py-3 px-3">
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                                      :class="{
+                                          'bg-rose-50 text-rose-700': job.status === 'running',
+                                          'bg-blue-50 text-blue-700': job.status === 'pending',
+                                          'bg-emerald-50 text-emerald-700': job.status === 'scheduled',
+                                          'bg-slate-100 text-slate-500': job.status === 'stopped',
+                                          'bg-amber-50 text-amber-700': job.status === 'failed',
+                                          'bg-slate-100 text-slate-400': job.status === 'finished',
+                                      }">
+                                    <span x-show="job.status === 'running'" class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                                    <span x-text="job.status"></span>
+                                </span>
+                            </td>
+                            <td class="py-3 px-3 font-mono text-slate-500" x-text="'#' + job.id"></td>
+                            <td class="py-3 px-3 font-semibold text-slate-900 max-w-[150px] truncate" x-text="job.title || '-'"></td>
+                            <td class="py-3 px-3">
+                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold" x-text="job.quality"></span>
+                            </td>
+                            <td class="py-3 px-3 text-slate-500" x-text="job.duration_hours + 'h'"></td>
+                            <td class="py-3 px-3 text-slate-500" x-text="formatDate(job.started_at || job.created_at)"></td>
+                            <td class="py-3 px-3">
+                                <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                                      :class="job.process_alive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'"
+                                      x-text="job.process_alive ? 'FFmpeg ON' : 'FFmpeg OFF'"></span>
+                            </td>
+                            <td class="py-3 px-3">
+                                <div class="flex gap-1">
+                                    <button x-show="job.status === 'running'" @click="stopJob(job.id)"
+                                            class="px-2 py-1 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100">Stop</button>
+                                    <button x-show="job.status === 'running'" @click="checkProcess(job.id)"
+                                            class="px-2 py-1 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100">Check</button>
+                                    <button x-show="job.status !== 'running'" @click="deleteJob(job.id)"
+                                            class="px-2 py-1 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100">🗑</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# Running Jobs Detail #}
+    <div x-show="runningJobs.length > 0" class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-sm font-bold text-slate-900 mb-3">🔴 Sedang Live</div>
+        <div class="space-y-3">
+            <template x-for="job in runningJobs" :key="job.id">
+                <div class="p-4 rounded-lg bg-rose-50 border border-rose-200">
+                    <div class="flex items-center gap-3">
+                        <div class="w-3 h-3 rounded-full bg-rose-500 animate-pulse"></div>
+                        <div>
+                            <div class="text-sm font-bold text-rose-900" x-text="job.title"></div>
+                            <div class="text-xs text-rose-600" x-text="'PID: ' + (job.process_id || '-') + ' • Quality: ' + job.quality"></div>
+                        </div>
+                        <div class="ml-auto text-xs text-rose-500" x-text="formatDate(job.started_at)"></div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadEngineStatus() {
+  try {
+    const r = await fetch('/api/livestream/engine-status');
+    const e = await r.json();
+
+    // FFmpeg
+    const ffmpegEl = document.getElementById('ffmpeg-status');
+    const ffmpegDetail = document.getElementById('ffmpeg-detail');
+    if (e.ffmpeg && e.ffmpeg.running) {
+      ffmpegEl.innerHTML = '<span style="color:#10b981">✅ ON</span>';
+      ffmpegDetail.textContent = e.ffmpeg.count + ' process(es)';
+      if (e.running_jobs && e.running_jobs.length > 0) {
+        const info = e.running_jobs.map(j => {
+          const health = j.health_age_sec !== null ? j.health_age_sec + 's' : '-';
+          return 'Job #' + j.id + ': ' + (j.bitrate || '-') + 'kbps ' + (j.fps || '-') + 'fps';
+        }).join(' | ');
+        ffmpegDetail.textContent = info;
+      }
+    } else {
+      ffmpegEl.innerHTML = '<span style="color:#ef4444">❌ OFF</span>';
+      ffmpegDetail.textContent = 'No FFmpeg';
+    }
+
+    // Worker
+    const workerEl = document.getElementById('worker-status');
+    const workerDetail = document.getElementById('worker-detail');
+    if (e.worker && e.worker.running) {
+      workerEl.innerHTML = '<span style="color:#10b981">✅ ON</span>';
+      workerDetail.textContent = 'PID: ' + (e.worker.pid || '-');
+    } else {
+      workerEl.innerHTML = '<span style="color:#ef4444">❌ OFF</span>';
+      workerDetail.textContent = 'Not running';
+    }
+
+    // Python
+    const pythonEl = document.getElementById('python-status');
+    const pythonDetail = document.getElementById('python-detail');
+    if (e.backend && e.backend.running) {
+      pythonEl.innerHTML = '<span style="color:#10b981">✅ ON</span>';
+      pythonDetail.textContent = 'PID: ' + e.backend.pid;
+    } else {
+      pythonEl.innerHTML = '<span style="color:#ef4444">❌ OFF</span>';
+      pythonDetail.textContent = 'Not running';
+    }
+  } catch(err) {
+    console.error('Engine status error:', err);
+  }
+}
+
+function monitorLivePage() {
+    return {
+        activeChannel: null,
+        jobs: [],
+        runningJobs: [],
+
+        get runningCount() { return this.jobs.filter(j => j.status === 'running').length; },
+        get scheduledCount() { return this.jobs.filter(j => j.status === 'scheduled').length; },
+        get pendingCount() { return this.jobs.filter(j => j.status === 'pending').length; },
+
+        async init() {
+            this.syncChannel();
+            setInterval(() => this.syncChannel(), 2000);
+            // Auto-refresh setiap 10 detik
+            setInterval(() => { if (this.activeChannel) this.loadJobs(); }, 10000);
+            loadEngineStatus();
+            setInterval(loadEngineStatus, 10000);
+        },
+
+        syncChannel() {
+            const chId = localStorage.getItem('jb_ch');
+            if (typeof channels !== 'undefined' && channels.length > 0) {
+                let found = null;
+                if (chId) found = channels.find(c => String(c.id) === String(chId));
+                if (!found) found = channels[0];
+                if (found && (!this.activeChannel || this.activeChannel.id !== found.id)) {
+                    this.activeChannel = found;
+                    this.loadJobs();
+                }
+            }
+        },
+
+        async loadHealth() {
+            try {
+                const r = await fetch('/api/livestream/health-dashboard');
+                const d = await r.json();
+                this.healthChannels = d.channels || [];
+            } catch(e) {}
+        },
+
+        async loadJobs() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/livestream?channel_id=' + this.activeChannel.id);
+                this.jobs = await r.json();
+                // Update running jobs with process check
+                this.runningJobs = this.jobs.filter(j => j.status === 'running');
+                for (const job of this.runningJobs) {
+                    try {
+                        const cr = await fetch('/api/livestream/' + job.id + '/process-check', {method: 'POST'});
+                        const cd = await cr.json();
+                        job.process_alive = cd.alive;
+                    } catch(e) { job.process_alive = false; }
+                }
+            } catch(e) { this.jobs = []; }
+        },
+
+        formatDate(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return d.toLocaleDateString('id-ID', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+        },
+
+        async stopJob(id) {
+            if (!confirm('Stop livestream ini?')) return;
+            try {
+                await fetch('/api/livestream/' + id + '/stop', {method: 'POST'});
+                this.loadJobs();
+            } catch(e) {}
+        },
+
+        async deleteJob(id) {
+            if (!confirm('Hapus job ini?')) return;
+            try {
+                await fetch('/api/livestream/' + id, {method: 'DELETE'});
+                this.loadJobs();
+            } catch(e) {}
+        },
+
+        async checkProcess(id) {
+            try {
+                const r = await fetch('/api/livestream/' + id + '/process-check', {method: 'POST'});
+                const d = await r.json();
+                alert(d.alive ? 'Process alive (PID: ' + d.process_id + ')' : 'Process dead');
+            } catch(e) {}
+        },
+
+        async checkerGlobal() {
+            try {
+                const r = await fetch('/api/livestream/checker-global');
+                const d = await r.json();
+                alert('Running: ' + d.running_count + ' job');
+            } catch(e) {}
+        },
+
+        async killGlobal() {
+            if (!confirm('Kill semua livestream?')) return;
+            try {
+                const r = await fetch('/api/livestream/kill-global');
+                const d = await r.json();
+                alert(d.killed + ' proses di-kill');
+                this.loadJobs();
+            } catch(e) {}
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,704 @@
+{% extends "base.html" %}
+{% block title %}Upload{% endblock %}
+{% block content %}
+<div x-data="uploadPage()" x-init="init()" class="space-y-5">
+
+    {# Alert #}
+    <div x-show="alertMsg" x-cloak
+         class="p-4 rounded-xl text-sm font-semibold"
+         :class="alertType === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'"
+         x-text="alertMsg"></div>
+
+    {# ── Mode Switcher ── #}
+    <div class="bg-white rounded-xl border border-slate-200 p-2 flex gap-2">
+        <button @click="switchMode('manual')"
+                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
+                :class="uploadMode === 'manual' ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:bg-slate-50'">
+            📤 Manual Mode
+        </button>
+        <button @click="switchMode('single_schedule')"
+                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
+                :class="uploadMode === 'single_schedule' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'">
+            📅 Single Schedule
+        </button>
+        <button @click="switchMode('double_schedule')"
+                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
+                :class="uploadMode === 'double_schedule' ? 'bg-violet-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'">
+            📅📅 Double Schedule
+        </button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-5">
+
+        {# ── LEFT ── #}
+        <div class="space-y-5">
+
+            {# ── MANUAL MODE ── #}
+            <template x-if="uploadMode === 'manual'">
+                <div class="space-y-5">
+                    {# Upload Ready Files #}
+                    <div class="bg-white rounded-xl border border-slate-200 p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <div class="text-sm font-bold text-slate-900">Upload Ready</div>
+                                <div class="text-xs text-slate-500">Video siap upload ke YouTube</div>
+                            </div>
+                            <button @click="loadUploadReady()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+                        </div>
+                        <div x-show="uploadReadyFiles.length === 0" class="py-8 text-center text-sm text-slate-400">
+                            Belum ada video upload ready. Produksi video dulu.
+                        </div>
+                        <div x-show="uploadReadyFiles.length > 0" class="space-y-2 max-h-64 overflow-y-auto">
+                            <template x-for="file in uploadReadyFiles" :key="file.filename">
+                                <div class="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer"
+                                     :class="selectedFile === file.filename ? 'border-blue-300 bg-blue-50' : ''"
+                                     @click="selectFile(file)">
+                                    <div class="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-xs">🎬</div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-sm font-semibold text-slate-900 truncate" x-text="file.filename"></div>
+                                        <div class="text-[10px] text-slate-400" x-text="formatBytes(file.size)"></div>
+                                    </div>
+                                    <span x-show="selectedFile === file.filename" class="text-xs text-blue-600 font-semibold">✓</span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    {# Metadata Form #}
+                    <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                        <div class="text-sm font-bold text-slate-900">Metadata SEO</div>
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Judul Video</label>
+                                <button @click="generateTitle()" class="text-[10px] px-2 py-0.5 rounded bg-violet-50 text-violet-600 font-semibold hover:bg-violet-100">🎲 Gen</button>
+                            </div>
+                            <input type="text" x-model="form.title" placeholder="Judul video YouTube..."
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Deskripsi</label>
+
+                            </div>
+                            <textarea x-model="form.description" rows="4" placeholder="Deskripsi video..."
+                                      class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none resize-none"></textarea>
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tags</label>
+
+                            </div>
+                            <input type="text" x-model="form.tags" placeholder="tag1, tag2, tag3..."
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Visibility</label>
+                            <select x-model="form.visibility" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                                <option value="private">Private</option>
+                                <option value="unlisted">Unlisted</option>
+                                <option value="public">Public</option>
+                                <option value="scheduled">Scheduled</option>
+                            </select>
+                        </div>
+                        <div x-show="form.visibility === 'scheduled'">
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Jadwal Publish</label>
+                            <input type="datetime-local" x-model="form.scheduled_at"
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Thumbnail</label>
+                            <div class="flex items-center gap-3">
+                                <input type="file" x-ref="thumbnailFile" accept="image/*" @change="previewThumbnail($event)"
+                                       class="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-600">
+                                <div x-show="thumbnailPreview" class="relative">
+                                    <img :src="thumbnailPreview" class="w-16 h-10 object-cover rounded border border-slate-200">
+                                    <button @click="clearThumbnail()" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[8px] flex items-center justify-center">&times;</button>
+                                </div>
+                            </div>
+                            <div class="text-[10px] text-slate-400 mt-1">Opsional. JPG/PNG. Jika kosong, auto-pilih dari pool.</div>
+                        </div>
+                        <button @click="submitUpload()" :disabled="!selectedFile || submitting"
+                                class="w-full px-6 py-3 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-50 transition-all">
+                            <span x-show="!submitting">📤 Upload ke YouTube</span>
+                            <span x-show="submitting">Mengupload...</span>
+                        </button>
+                    </div>
+
+                    {# Bank Title #}
+                    <div class="bg-white rounded-xl border border-slate-200 p-5">
+                        <div class="text-sm font-bold text-slate-900 mb-3">Bank Title</div>
+                        <div class="text-xs text-slate-500 mb-3">Upload file .txt (satu judul per baris) untuk pool judul otomatis</div>
+                        <form @submit.prevent="uploadBankTitle()">
+                            <div class="flex gap-2">
+                                <input type="file" x-ref="bankTitleFile" accept=".txt"
+                                       class="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-600">
+                                <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800">Upload</button>
+                            </div>
+                        </form>
+                        <div x-show="bankTitleCount > 0" class="text-xs text-emerald-600 mt-2" x-text="bankTitleCount + ' judul di bank'"></div>
+                    </div>
+                </div>
+            </template>
+
+            {# ── SCHEDULE MODE (Single / Double) ── #}
+            <template x-if="uploadMode !== 'manual'">
+                <div class="space-y-5">
+                    {# Schedule Settings #}
+                    <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                        <div class="text-sm font-bold text-slate-900" x-text="uploadMode === 'single_schedule' ? '📅 Single Schedule — 1 Video/Hari' : '📅📅 Double Schedule — 2 Video/Hari'"></div>
+                        <div class="text-xs text-slate-500">Auto-jadwalkan video dari Upload Ready dengan metadata dari pool (Title, Description, Tags).</div>
+
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tanggal Mulai</label>
+                                <input type="date" x-model="schedule.start_date"
+                                       class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Jam Mulai</label>
+                                <input type="time" x-model="schedule.start_time"
+                                       class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Interval (hari)</label>
+                                <select x-model.number="schedule.interval" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                                    <option value="1">Setiap hari</option>
+                                    <option value="2">2 hari sekali</option>
+                                    <option value="3">3 hari sekali</option>
+                                    <option value="7">7 hari sekali</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button @click="previewSchedule()" :disabled="previewLoading"
+                                class="w-full px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-500 disabled:opacity-50 transition-all">
+                            <span x-show="!previewLoading">🔍 Preview Jadwal</span>
+                            <span x-show="previewLoading">Loading...</span>
+                        </button>
+                    </div>
+
+                    {# Preview Table #}
+                    <div x-show="schedulePreview.length > 0" class="bg-white rounded-xl border border-slate-200 p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="text-sm font-bold text-slate-900">Preview Jadwal</div>
+                            <div class="text-xs text-slate-500" x-text="schedulePreview.length + ' video'"></div>
+                        </div>
+
+                        <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                            <table class="w-full text-xs">
+                                <thead class="sticky top-0 bg-white">
+                                    <tr class="border-b border-slate-100">
+                                        <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">#</th>
+                                        <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Slot</th>
+                                        <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Jadwal</th>
+                                        <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Video</th>
+                                        <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Judul</th>
+                                        <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="(row, i) in schedulePreview" :key="i">
+                                        <tr class="border-b border-slate-50 hover:bg-slate-50">
+                                            <td class="py-2 px-2 text-slate-400" x-text="i + 1"></td>
+                                            <td class="py-2 px-2">
+                                                <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                                                      :class="row.slot_label.includes('Slot 1') ? 'bg-amber-50 text-amber-700' : row.slot_label.includes('Slot 2') ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-600'"
+                                                      x-text="row.slot_label"></span>
+                                            </td>
+                                            <td class="py-2 px-2 font-semibold text-slate-900" x-text="row.scheduled_at_label"></td>
+                                            <td class="py-2 px-2">
+                                                <div class="max-w-[160px] truncate text-slate-900" x-text="row.video_name"></div>
+                                            </td>
+                                            <td class="py-2 px-2">
+                                                <div class="max-w-[200px] truncate text-slate-700" x-text="row.title || '-'"></div>
+                                            </td>
+                                            <td class="py-2 px-2">
+                                                <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                                                      :class="row.is_ready ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'"
+                                                      x-text="row.is_ready ? '✓ Ready' : '✕ Missing'"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <button @click="confirmSchedule()" :disabled="scheduleSubmitting"
+                                class="w-full mt-4 px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 disabled:opacity-50 transition-all">
+                            <span x-show="!scheduleSubmitting">✅ Konfirmasi & Buat Batch Upload</span>
+                            <span x-show="scheduleSubmitting">Membuat batch...</span>
+                        </button>
+                    </div>
+
+                    {# Info #}
+                    <div class="bg-blue-50 rounded-xl border border-blue-200 p-4">
+                        <div class="text-xs text-blue-700">
+                            <strong>Cara kerja:</strong>
+                            <ul class="mt-1 space-y-1 list-disc list-inside">
+                                <li>Pastikan Title Pool sudah diisi (upload file .txt di Bank Title)</li>
+                                <li>Description dan Tags akan diambil dari pool clipboard</li>
+                                <li>Sistem akan auto-assign metadata dan jadwal ke setiap video</li>
+                                <li>Upload worker akan memproses sesuai jadwal yang ditentukan</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        {# ── RIGHT: Upload History ── #}
+        <div class="space-y-5">
+
+            {# Stats #}
+            <div class="bg-white rounded-xl border border-slate-200 p-5">
+                <div class="text-sm font-bold text-slate-900 mb-3">Upload Stats</div>
+                <div class="grid grid-cols-4 gap-2">
+                    <div class="text-center p-2 rounded-lg bg-slate-50">
+                        <div class="text-lg font-extrabold text-slate-900" x-text="stats.total || 0"></div>
+                        <div class="text-[10px] text-slate-400 font-semibold">Total</div>
+                    </div>
+                    <div class="text-center p-2 rounded-lg bg-emerald-50">
+                        <div class="text-lg font-extrabold text-emerald-700" x-text="stats.done || 0"></div>
+                        <div class="text-[10px] text-emerald-600 font-semibold">Sukses</div>
+                    </div>
+                    <div class="text-center p-2 rounded-lg bg-blue-50">
+                        <div class="text-lg font-extrabold text-blue-700" x-text="stats.pending || 0"></div>
+                        <div class="text-[10px] text-blue-600 font-semibold">Pending</div>
+                    </div>
+                    <div class="text-center p-2 rounded-lg bg-rose-50">
+                        <div class="text-lg font-extrabold text-rose-700" x-text="stats.failed || 0"></div>
+                        <div class="text-[10px] text-rose-600 font-semibold">Gagal</div>
+                    </div>
+                </div>
+            </div>
+
+            {# Google Token Status #}
+            <div x-show="tokenExpired" class="bg-rose-50 border border-rose-200 rounded-xl p-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-rose-600 font-semibold text-sm">⚠️ Token Google Expired</span>
+                </div>
+                <p class="text-xs text-rose-500 mb-3">Upload tidak bisa dilakukan karena token Google sudah expired. Silakan reconnect.</p>
+                <button @click="reconnectGoogle()" class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 transition-all">
+                    🔗 Reconnect Google
+                </button>
+            </div>
+
+            {# Upload History #}
+            <div class="bg-white rounded-xl border border-slate-200 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-bold text-slate-900">Riwayat Upload</div>
+                    <button @click="loadItems()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+                </div>
+                <div x-show="items.length === 0" class="py-8 text-center text-sm text-slate-400">
+                    Belum ada upload
+                </div>
+                <div x-show="items.length > 0" class="space-y-2 max-h-96 overflow-y-auto">
+                    <template x-for="item in items" :key="item.id">
+                        <div class="p-3 rounded-lg border border-slate-100 hover:bg-slate-50">
+                            <div class="flex items-start justify-between">
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-sm font-semibold text-slate-900 truncate" x-text="item.title || '-'"></div>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                                              :class="{
+                                                  'bg-emerald-50 text-emerald-700': item.status === 'done',
+                                                  'bg-blue-50 text-blue-700': item.status === 'pending',
+                                                  'bg-amber-50 text-amber-700': item.status === 'processing',
+                                                  'bg-rose-50 text-rose-700': item.status === 'failed',
+                                              }" x-text="item.status"></span>
+                                        <span x-show="item.status === 'processing'" class="text-[10px] text-amber-600 font-semibold" x-text="item.progress + '%'"></span>
+                                        <span x-show="item.youtube_video_id" class="text-[10px] text-blue-600">
+                                            <a :href="'https://youtube.com/watch?v=' + item.youtube_video_id" target="_blank">▶ YouTube</a>
+                                        </span>
+                                        <span x-show="item.scheduled_at" class="text-[10px] text-slate-400" x-text="'📅 ' + formatDate(item.scheduled_at)"></span>
+                                    </div>
+                                    <div x-show="item.status === 'processing'" class="mt-2">
+                                        <div class="w-full h-1.5 rounded-full bg-amber-100 overflow-hidden">
+                                            <div class="h-full rounded-full bg-amber-500 transition-all duration-500"
+                                                 :style="'width: ' + (item.progress || 0) + '%'"></div>
+                                        </div>
+                                    </div>
+                                    <div x-show="item.last_error" class="text-[10px] text-rose-500 mt-1" x-text="item.last_error"></div>
+                                </div>
+                                <div class="flex gap-1 ml-2">
+                                    <button x-show="item.status === 'failed'" @click="retryItem(item.id)"
+                                            class="text-[10px] px-2 py-1 rounded bg-amber-50 text-amber-700 font-semibold hover:bg-amber-100">Retry</button>
+                                    <button @click="deleteItem(item.id)"
+                                            class="text-[10px] px-2 py-1 rounded bg-rose-50 text-rose-700 font-semibold hover:bg-rose-100">🗑</button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function uploadPage() {
+    return {
+        activeChannel: null,
+        uploadMode: localStorage.getItem('jb_upload_mode') || 'manual',
+        uploadReadyFiles: [],
+        selectedFile: null,
+        items: [],
+        stats: {},
+        bankTitleCount: 0,
+        submitting: false,
+        alertMsg: '',
+        alertType: 'ok',
+
+        // Schedule
+        schedule: {
+            start_date: new Date().toISOString().split('T')[0],
+            start_time: '09:00',
+            interval: 1,
+        },
+        schedulePreview: [],
+        previewLoading: false,
+        scheduleSubmitting: false,
+
+        form: {
+            title: '',
+            description: '',
+            tags: '',
+            visibility: 'private',
+            scheduled_at: '',
+        },
+        thumbnailPreview: null,
+        thumbnailUploading: false,
+        tokenExpired: false,
+
+        async init() {
+            this.syncChannel();
+            setInterval(() => this.syncChannel(), 2000);
+            // Auto-refresh items every 5 seconds for real-time status updates
+            setInterval(() => {
+                if (this.activeChannel) {
+                    this.loadItems();
+                    this.loadStats();
+                }
+            }, 5000);
+            // Check token status
+            this.checkTokenStatus();
+            setInterval(() => this.checkTokenStatus(), 30000);
+        },
+
+        switchMode(mode) {
+            this.uploadMode = mode;
+            localStorage.setItem('jb_upload_mode', mode);
+            this.schedulePreview = [];
+        },
+
+        syncChannel() {
+            const chId = localStorage.getItem('jb_ch');
+            if (typeof channels !== 'undefined' && channels.length > 0) {
+                let found = null;
+                if (chId) found = channels.find(c => String(c.id) === String(chId));
+                if (!found) found = channels[0];
+                if (found && (!this.activeChannel || this.activeChannel.id !== found.id)) {
+                    this.activeChannel = found;
+                    this.loadAll();
+                }
+            }
+        },
+
+        async loadAll() {
+            await Promise.all([this.loadUploadReady(), this.loadItems(), this.loadStats(), this.loadBankTitleCount()]);
+        },
+
+        formatBytes(bytes) {
+            if (!bytes || bytes <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return (bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + units[i];
+        },
+
+        formatDate(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return d.toLocaleDateString('id-ID', {day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+        },
+
+        async loadUploadReady() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/uploads/upload-ready?channel_id=' + this.activeChannel.id);
+                const d = await r.json();
+                this.uploadReadyFiles = d.files || [];
+            } catch(e) {}
+        },
+
+        async loadItems() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/uploads/items?channel_id=' + this.activeChannel.id);
+                const newItems = await r.json();
+                
+                // Check for new errors and show notification
+                if (this.items.length > 0) {
+                    for (const newItem of newItems) {
+                        const oldItem = this.items.find(i => i.id === newItem.id);
+                        if (oldItem && oldItem.status !== 'failed' && newItem.status === 'failed') {
+                            this.showAlert('bad', `Upload #${newItem.id} gagal: ${newItem.last_error || 'Unknown error'}`);
+                        }
+                        if (oldItem && oldItem.status !== 'done' && newItem.status === 'done') {
+                            this.showAlert('ok', `Upload #${newItem.id} selesai: ${newItem.title}`);
+                        }
+                    }
+                }
+                
+                this.items = newItems;
+            } catch(e) {}
+        },
+
+        async loadStats() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/uploads/stats?channel_id=' + this.activeChannel.id);
+                this.stats = await r.json();
+            } catch(e) {}
+        },
+
+        async loadBankTitleCount() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/uploads/bank-title?channel_id=' + this.activeChannel.id);
+                const d = await r.json();
+                this.bankTitleCount = d.length || 0;
+            } catch(e) {}
+        },
+
+        selectFile(file) {
+            this.selectedFile = file.filename;
+        },
+
+        previewThumbnail(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => { this.thumbnailPreview = e.target.result; };
+                reader.readAsDataURL(file);
+            }
+        },
+
+        clearThumbnail() {
+            this.thumbnailPreview = null;
+            this.$refs.thumbnailFile.value = '';
+        },
+
+        async uploadThumbnail(channelId) {
+            const fileInput = this.$refs.thumbnailFile;
+            if (!fileInput.files.length) return null;
+            const formData = new FormData();
+            formData.append('channel_id', channelId);
+            formData.append('asset_type', 'thumbnail');
+            formData.append('files', fileInput.files[0]);
+            try {
+                const r = await fetch('/api/media/upload', {method: 'POST', body: formData});
+                const d = await r.json();
+                if (d.uploaded && d.uploaded.length > 0) {
+                    return d.uploaded[0].file_path;
+                }
+            } catch(e) {}
+            return null;
+        },
+
+        async checkTokenStatus() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/auth/google/status/' + this.activeChannel.id);
+                const d = await r.json();
+                this.tokenExpired = d.is_expired || false;
+            } catch(e) {}
+        },
+
+        async reconnectGoogle() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/auth/google/connect/' + this.activeChannel.id);
+                const d = await r.json();
+                if (d.auth_url) {
+                    window.open(d.auth_url, '_blank');
+                    this.showAlert('ok', 'Halaman Google Auth dibuka. Silakan login.');
+                } else {
+                    this.showAlert('bad', 'Gagal membuat URL auth');
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Error: ' + e.message);
+            }
+        },
+
+        async generateTitle() {
+            if (!this.activeChannel) return;
+            const ch = this.activeChannel.id;
+            try {
+                const [titleRes, descRes, tagsRes] = await Promise.all([
+                    fetch('/api/uploads/bank-title/random?channel_id=' + ch),
+                    fetch('/api/uploads/clipboard-description?channel_id=' + ch),
+                    fetch('/api/uploads/clipboard-tags?channel_id=' + ch),
+                ]);
+                const titleData = await titleRes.json();
+                const descData = await descRes.json();
+                const tagsData = await tagsRes.json();
+
+                if (titleData.title) this.form.title = titleData.title;
+                if (descData.description) this.form.description = descData.description;
+                if (tagsData.tags) this.form.tags = tagsData.tags;
+
+                const parts = [];
+                if (titleData.title) parts.push('judul');
+                if (descData.description) parts.push('deskripsi');
+                if (tagsData.tags) parts.push('tags');
+
+                if (parts.length) {
+                    this.showAlert('ok', 'Generate: ' + parts.join(', ') + ' dari pool');
+                } else {
+                    this.showAlert('bad', 'Pool kosong. Upload file .txt dulu.');
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Gagal generate dari pool');
+            }
+        },
+
+        async uploadBankTitle() {
+            const fileInput = this.$refs.bankTitleFile;
+            if (!fileInput.files.length) return;
+            if (!this.activeChannel) return;
+            const formData = new FormData();
+            formData.append('channel_id', this.activeChannel.id);
+            formData.append('file', fileInput.files[0]);
+            try {
+                const r = await fetch('/api/uploads/bank-title', {method: 'POST', body: formData});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', d.added + ' judul ditambahkan ke bank');
+                    this.loadBankTitleCount();
+                    fileInput.value = '';
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Gagal upload bank title');
+            }
+        },
+
+        async submitUpload() {
+            if (!this.selectedFile) { this.showAlert('bad', 'Pilih file dulu'); return; }
+            if (!this.form.title) { this.showAlert('bad', 'Judul wajib diisi'); return; }
+            this.submitting = true;
+            try {
+                // Upload thumbnail first if selected
+                let thumbnailPath = null;
+                if (this.$refs.thumbnailFile && this.$refs.thumbnailFile.files.length) {
+                    this.thumbnailUploading = true;
+                    thumbnailPath = await this.uploadThumbnail(this.activeChannel.id);
+                    this.thumbnailUploading = false;
+                }
+
+                const r = await fetch('/api/uploads', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        channel_id: this.activeChannel.id,
+                        title: this.form.title,
+                        description: this.form.description,
+                        tags: this.form.tags,
+                        visibility: this.form.visibility,
+                        scheduled_at: this.form.visibility === 'scheduled' ? this.form.scheduled_at : null,
+                        thumbnail_path: thumbnailPath,
+                    }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', 'Upload job created: ' + d.title);
+                    this.loadItems();
+                    this.loadStats();
+                    this.form.title = '';
+                    this.form.description = '';
+                    this.form.tags = '';
+                    this.clearThumbnail();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal membuat upload');
+                }
+            } catch(e) { this.showAlert('bad', 'Error: ' + e.message); }
+            this.submitting = false;
+        },
+
+        async previewSchedule() {
+            if (!this.activeChannel) { this.showAlert('bad', 'Pilih channel aktif dulu.'); return; }
+            this.previewLoading = true;
+            try {
+                const r = await fetch('/api/uploads/preview-schedule', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        channel_id: this.activeChannel.id,
+                        mode: this.uploadMode,
+                        start_date: this.schedule.start_date,
+                        start_time: this.schedule.start_time,
+                        interval: this.schedule.interval,
+                    }),
+                });
+                const d = await r.json();
+                if (d.ok) {
+                    this.schedulePreview = d.rows || [];
+                    this.showAlert('ok', d.total_rows + ' video siap dijadwalkan');
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal preview');
+                }
+            } catch(e) { this.showAlert('bad', 'Error: ' + e.message); }
+            this.previewLoading = false;
+        },
+
+        async confirmSchedule() {
+            if (!this.schedulePreview.length) return;
+            this.scheduleSubmitting = true;
+            try {
+                const r = await fetch('/api/uploads/batch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        channel_id: this.activeChannel.id,
+                        mode: this.uploadMode,
+                        rows: this.schedulePreview,
+                    }),
+                });
+                const d = await r.json();
+                if (d.ok) {
+                    this.showAlert('ok', d.message);
+                    this.schedulePreview = [];
+                    this.loadItems();
+                    this.loadStats();
+                    this.loadUploadReady();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal membuat batch');
+                }
+            } catch(e) { this.showAlert('bad', 'Error: ' + e.message); }
+            this.scheduleSubmitting = false;
+        },
+
+        async retryItem(id) {
+            try {
+                await fetch('/api/uploads/' + id + '/retry', {method: 'POST'});
+                this.loadItems();
+            } catch(e) {}
+        },
+
+        async deleteItem(id) {
+            if (!confirm('Hapus item upload ini?')) return;
+            try {
+                await fetch('/api/uploads/' + id, {method: 'DELETE'});
+                this.loadItems();
+                this.loadStats();
+            } catch(e) {}
+        },
+
+        showAlert(type, msg) {
+            this.alertType = type;
+            this.alertMsg = msg;
+            setTimeout(() => { this.alertMsg = ''; }, 5000);
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,826 @@
+{% extends "base.html" %}
+{% block title %}Start Live{% endblock %}
+{% block content %}
+<div x-data="livePage()" x-init="init()" class="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-5">
+
+    {# ── LEFT: Live Form ── #}
+    <div class="space-y-5">
+
+        <div x-show="alertMsg" x-cloak
+             class="p-4 rounded-xl text-sm font-semibold"
+             :class="alertType === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'"
+             x-text="alertMsg"></div>
+
+        {# Stats #}
+        <div class="grid grid-cols-4 gap-3">
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold text-rose-600" x-text="runningCount"></div>
+                <div class="text-[10px] text-rose-500 font-bold uppercase">Live Now</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold text-blue-600" x-text="scheduledCount"></div>
+                <div class="text-[10px] text-blue-500 font-bold uppercase">Scheduled</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold text-slate-900" x-text="pendingCount"></div>
+                <div class="text-[10px] text-slate-400 font-bold uppercase">Queue</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                <div class="text-lg font-extrabold"
+                     :class="tokenStatus === 'valid' ? 'text-emerald-600' : tokenStatus === 'expired' ? 'text-amber-600' : 'text-rose-600'"
+                     x-text="tokenStatus === 'valid' ? 'OK' : tokenStatus === 'expired' ? 'EXP' : 'NONE'"></div>
+                <div class="text-[10px] text-slate-400 font-bold uppercase">OAuth</div>
+            </div>
+        </div>
+
+        {# Live Form #}
+        <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+            <div class="text-sm font-bold text-slate-900">🔴 Start Livestream</div>
+
+            {# Video Source - dropdown from DB #}
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Video Source</label>
+                <select x-model="form.video_source" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                    <option value="">Pilih video...</option>
+                    <template x-for="v in videoSources" :key="v.label">
+                        <option :value="v.label" x-text="v.label + ' (' + formatBytes(v.file_size) + ')'"></option>
+                    </template>
+                </select>
+            </div>
+
+            {# Title & Description #}
+            <div class="grid grid-cols-1 gap-3">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Judul Live</label>
+                        <button @click="generateMetadata()" class="text-[10px] px-2 py-0.5 rounded bg-violet-50 text-violet-600 font-semibold hover:bg-violet-100">🎲 Gen</button>
+                    </div>
+                    <input type="text" x-model="form.title" placeholder="Judul livestream..." maxlength="100"
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none"
+                           :class="form.title && form.title.length < 3 ? 'border-rose-300' : ''">
+                    <div class="flex justify-between mt-1">
+                        <span x-show="form.title && form.title.length < 3" class="text-[10px] text-rose-500">Min. 3 karakter</span>
+                        <span class="text-[10px] text-slate-400 ml-auto" x-text="form.title.length + '/100'"></span>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Deskripsi</label>
+                    <textarea x-model="form.description" rows="3" placeholder="Deskripsi livestream..."
+                              class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none resize-none"></textarea>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tags</label>
+                    <input type="text" x-model="form.tags" placeholder="tag1, tag2, tag3..."
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Thumbnail</label>
+                    <div class="flex items-center gap-3">
+                        <input type="file" x-ref="thumbnailFile" accept="image/*" @change="previewThumbnail($event)"
+                               class="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-600">
+                        <div x-show="thumbnailPreview" class="relative">
+                            <img :src="thumbnailPreview" class="w-16 h-10 object-cover rounded border border-slate-200">
+                            <button @click="clearThumbnail()" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[8px] flex items-center justify-center">&times;</button>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-1">Opsional. JPG/PNG.</div>
+                </div>
+            </div>
+
+            {# Duration & Quality #}
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Durasi (jam)</label>
+                    <input type="number" x-model.number="form.duration_hours" min="1" max="72"
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Kualitas</label>
+                    <select x-model="form.quality" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="low">Low (720p)</option>
+                        <option value="high">High (1080p)</option>
+                    </select>
+                </div>
+            </div>
+
+            {# Audio Options #}
+            <div class="flex gap-4">
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" x-model="form.use_mp3" class="rounded border-slate-300">
+                    <span class="text-sm text-slate-700">MP3</span>
+                </label>
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" x-model="form.use_sfx" class="rounded border-slate-300">
+                    <span class="text-sm text-slate-700">SFX</span>
+                </label>
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" x-model="form.made_for_kids" class="rounded border-slate-300">
+                    <span class="text-sm text-slate-700">Kids</span>
+                </label>
+            </div>
+
+            {# Visibility #}
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Visibility</label>
+                <select x-model="form.visibility" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                    <option value="unlisted">Unlisted</option>
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                </select>
+            </div>
+
+            {# Stream Key #}
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Stream Key</label>
+                <div class="flex gap-2">
+                    <input type="text" x-model="form.stream_key" placeholder="Stream key YouTube..."
+                           class="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none font-mono">
+                    <button @click="saveStreamKey()" class="px-3 py-2 rounded-lg bg-slate-100 text-sm font-semibold text-slate-600 hover:bg-slate-200">💾</button>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-1" x-text="activeChannel?.stream_key ? 'Key tersimpan di channel' : 'Belum ada key tersimpan'"></div>
+            </div>
+
+            {# Readiness Check #}
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="text-sm font-bold text-slate-900">Kesiapan Livestream</div>
+                    <button @click="checkReadiness()" class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600 font-semibold hover:bg-slate-200">🔍 Cek</button>
+                </div>
+                <div x-show="readiness" class="space-y-1">
+                    <div class="flex items-center gap-2 text-xs">
+                        <span :class="readiness?.channel ? 'text-emerald-500' : 'text-rose-500'" x-text="readiness?.channel ? '✅' : '❌'"></span>
+                        <span>Channel</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <span :class="readiness?.stream_key ? 'text-emerald-500' : 'text-rose-500'" x-text="readiness?.stream_key ? '✅' : '❌'"></span>
+                        <span>Stream Key</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <span :class="readiness?.video_source ? 'text-emerald-500' : 'text-rose-500'" x-text="readiness?.video_source ? '✅' : '❌'"></span>
+                        <span>Video Source</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <span :class="readiness?.no_running_job ? 'text-emerald-500' : 'text-rose-500'" x-text="readiness?.no_running_job ? '✅' : '❌'"></span>
+                        <span>Tidak Ada Job Running</span>
+                    </div>
+                    <div x-show="readiness?.errors?.length > 0" class="mt-2 p-2 rounded bg-rose-50 text-rose-600 text-[10px]">
+                        <template x-for="err in readiness.errors" :key="err">
+                            <div x-text="'• ' + err"></div>
+                        </template>
+                        <button x-show="!readiness?.no_running_job" @click="cleanupJobs()" class="mt-2 px-2 py-1 rounded bg-rose-100 text-rose-700 text-xs font-semibold hover:bg-rose-200">🧹 Cleanup Job Stuck</button>
+                    </div>
+                </div>
+                <div x-show="!readiness" class="text-xs text-slate-400">Klik "Cek" untuk cek kesiapan</div>
+            </div>
+
+            {# Action Buttons #}
+            <div class="grid grid-cols-3 gap-3">
+                <button @click="publishNow()" :disabled="submitting || !form.title || form.title.length < 3"
+                        class="px-4 py-3 rounded-lg bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-50 transition-all">
+                    <span x-show="!submitting">🔴 Live Now</span>
+                    <span x-show="submitting">Memulai...</span>
+                </button>
+                <button @click="showSchedule = !showSchedule"
+                        class="px-4 py-3 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-all">
+                    📅 Schedule
+                </button>
+                <button @click="checkToken()" class="px-4 py-3 rounded-lg bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-all">
+                    🔑 Check Token
+                </button>
+            </div>
+
+            {# Schedule Form #}
+            <div x-show="showSchedule" x-cloak class="p-4 rounded-lg bg-blue-50 border border-blue-200 space-y-3">
+                <div class="text-sm font-bold text-blue-900">📅 Schedule Livestream</div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[10px] font-bold text-blue-400 uppercase mb-1">Tanggal</label>
+                        <input type="date" x-model="schedule.date"
+                               class="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm focus:border-blue-400 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-blue-400 uppercase mb-1">Jam (WIB)</label>
+                        <input type="time" x-model="schedule.time"
+                               class="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm focus:border-blue-400 outline-none">
+                    </div>
+                </div>
+                <button @click="scheduleLive()" :disabled="!schedule.date || !schedule.time"
+                        class="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-50">
+                    📅 Jadwalkan
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# ── RIGHT: Job List ── #}
+    <div class="space-y-5">
+
+        {# Actions #}
+        <div class="flex gap-2">
+            <button @click="checkerGlobal()" class="flex-1 px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100">🔍 Checker Global</button>
+            <button @click="killGlobal()" class="flex-1 px-3 py-2 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100">⛔ Kill Global</button>
+        </div>
+
+        {# Stream Monitor #}
+        <div x-show="streamMonitor" class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-bold text-slate-900">📺 Stream Monitor</div>
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="text-xs text-emerald-600 font-semibold">LIVE</span>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="p-3 rounded-lg bg-slate-50">
+                    <div class="text-[10px] text-slate-400 font-semibold">BITRATE</div>
+                    <div class="text-lg font-bold text-slate-900" x-text="(streamMonitor?.current_bitrate || 0) + ' kbps'"></div>
+                </div>
+                <div class="p-3 rounded-lg bg-slate-50">
+                    <div class="text-[10px] text-slate-400 font-semibold">FPS</div>
+                    <div class="text-lg font-bold text-slate-900" x-text="(streamMonitor?.current_fps || 0).toFixed(1)"></div>
+                </div>
+                <div class="p-3 rounded-lg bg-slate-50">
+                    <div class="text-[10px] text-slate-400 font-semibold">DURATION</div>
+                    <div class="text-lg font-bold text-slate-900" x-text="streamMonitor?.duration || '0h 0m'"></div>
+                </div>
+                <div class="p-3 rounded-lg bg-slate-50">
+                    <div class="text-[10px] text-slate-400 font-semibold">FRAME DROPS</div>
+                    <div class="text-lg font-bold" :class="(streamMonitor?.frame_drop_count || 0) > 0 ? 'text-rose-600' : 'text-slate-900'" x-text="streamMonitor?.frame_drop_count || 0"></div>
+                </div>
+                <div class="p-3 rounded-lg bg-slate-50">
+                    <div class="text-[10px] text-slate-400 font-semibold">RECONNECTS</div>
+                    <div class="text-lg font-bold" :class="(streamMonitor?.reconnect_count || 0) > 0 ? 'text-amber-600' : 'text-slate-900'" x-text="streamMonitor?.reconnect_count || 0"></div>
+                </div>
+                <div class="p-3 rounded-lg bg-slate-50">
+                    <div class="text-[10px] text-slate-400 font-semibold">HEALTH CHECK</div>
+                    <div class="text-xs font-semibold text-slate-600" x-text="streamMonitor?.last_health_check ? new Date(streamMonitor.last_health_check).toLocaleTimeString() : '-'"></div>
+                </div>
+            </div>
+            <div x-show="streamMonitor?.error_category" class="mt-3 p-2 rounded bg-rose-50 text-rose-600 text-xs">
+                Error: <span x-text="streamMonitor?.error_category"></span>
+            </div>
+        </div>
+
+        {# Job List #}
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-bold text-slate-900">Live Jobs</div>
+                <button @click="loadJobs()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+            </div>
+
+            <div x-show="jobs.length === 0" class="py-8 text-center text-sm text-slate-400">
+                Belum ada livestream job
+            </div>
+
+            <div x-show="jobs.length > 0" class="space-y-3 max-h-[500px] overflow-y-auto">
+                <template x-for="job in jobs" :key="job.id">
+                    <div class="p-3 rounded-lg border border-slate-100 hover:bg-slate-50">
+                        <div class="flex items-start justify-between">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-sm font-semibold text-slate-900 truncate" x-text="job.title || '-'"></div>
+                                <div class="flex items-center gap-2 mt-1 flex-wrap">
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                                          :class="{
+                                              'bg-rose-50 text-rose-700': job.status === 'running',
+                                              'bg-blue-50 text-blue-700': job.status === 'pending',
+                                              'bg-emerald-50 text-emerald-700': job.status === 'scheduled',
+                                              'bg-slate-100 text-slate-500': ['stopped','finished'].includes(job.status),
+                                              'bg-amber-50 text-amber-700': job.status === 'failed',
+                                          }" x-text="job.status"></span>
+                                    <span class="text-[10px] text-slate-400" x-text="job.quality + ' • ' + job.duration_hours + 'h'"></span>
+                                    <span x-show="job.broadcast_id" class="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 font-semibold">YT</span>
+                                    <span x-show="job.reconnect_count > 0" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-semibold" x-text="'↻' + job.reconnect_count"></span>
+                                    <span x-show="job.current_bitrate" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-semibold" x-text="job.current_bitrate + 'k'"></span>
+                                    <span x-show="job.current_fps" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-semibold" x-text="job.current_fps + ' fps'"></span>
+                                </div>
+                                <div x-show="job.error_message" class="text-[10px] text-rose-500 mt-1 p-1.5 rounded bg-rose-50" x-text="'❌ ' + job.error_message"></div>
+                                <div x-show="job.status === 'running' && job.stream_stats" class="text-[10px] text-slate-500 mt-1">
+                                    <span x-text="'⏱ ' + formatDuration(job.stream_stats?.elapsed_seconds || 0)"></span>
+                                    <span x-show="job.stream_stats?.drops > 0" class="text-amber-500 ml-2" x-text="'📉 Drops: ' + job.stream_stats?.drops"></span>
+                                </div>
+                            </div>
+                            <div class="flex gap-1 ml-2">
+                                <button x-show="job.status === 'scheduled'" @click="editJob(job)"
+                                        class="px-2 py-1 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100">✏️</button>
+                                <button x-show="job.status === 'running'" @click="stopJob(job.id)"
+                                        class="px-2 py-1 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100">Stop</button>
+                                <button x-show="['pending','scheduled','failed','stopped','finished'].includes(job.status)" @click="deleteJob(job.id)"
+                                        class="px-2 py-1 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100">🗑</button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+    {# Edit Modal #}
+    <div x-show="showEditModal" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <div class="flex items-center justify-between mb-4">
+                <div class="text-lg font-bold text-slate-900">Edit Schedule</div>
+                <button @click="cancelEdit()" class="text-slate-400 hover:text-slate-600">&times;</button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Title</label>
+                    <input type="text" x-model="form.title" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Description</label>
+                    <textarea x-model="form.description" rows="2" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Tags</label>
+                    <input type="text" x-model="form.tags" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Duration (hours)</label>
+                        <input type="number" x-model.number="form.duration_hours" min="1" max="72" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Quality</label>
+                        <select x-model="form.quality" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm">
+                            <option value="low">Low (720p)</option>
+                            <option value="high">High (1080p)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" x-model="form.use_mp3" class="rounded">
+                        <span class="text-xs text-slate-600">MP3</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" x-model="form.use_sfx" class="rounded">
+                        <span class="text-xs text-slate-600">SFX</span>
+                    </label>
+                </div>
+                <div class="flex gap-2 pt-2">
+                    <button @click="saveEditJob()" class="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">Save</button>
+                    <button @click="cancelEdit()" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-sm font-semibold hover:bg-slate-200">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function livePage() {
+    return {
+        activeChannel: null,
+        jobs: [],
+        videoSources: [],
+        submitting: false,
+        alertMsg: '',
+        alertType: 'ok',
+        showSchedule: false,
+        tokenStatus: 'none',
+
+        form: {
+            video_source: '',
+            title: '',
+            description: '',
+            tags: '',
+            duration_hours: 12,
+            quality: 'low',
+            use_mp3: true,
+            use_sfx: true,
+            made_for_kids: false,
+            visibility: 'unlisted',
+            stream_key: '',
+        },
+        thumbnailPreview: null,
+        readiness: null,
+        streamMonitor: null,
+        monitorInterval: null,
+        showEditModal: false,
+        editingJobId: null,
+
+        schedule: {
+            date: '',
+            time: '09:00',
+        },
+
+        get runningCount() { return this.jobs.filter(j => j.status === 'running').length; },
+        get scheduledCount() { return this.jobs.filter(j => j.status === 'scheduled').length; },
+        get pendingCount() { return this.jobs.filter(j => j.status === 'pending').length; },
+
+        async init() {
+            // Start monitor polling
+            this.monitorInterval = setInterval(() => this.loadMonitor(), 5000);
+            this.syncChannel();
+            setInterval(() => this.syncChannel(), 2000);
+        },
+
+        syncChannel() {
+            const chId = localStorage.getItem('jb_ch');
+            if (typeof channels !== 'undefined' && channels.length > 0) {
+                let found = null;
+                if (chId) found = channels.find(c => String(c.id) === String(chId));
+                if (!found) found = channels[0];
+                if (found && (!this.activeChannel || this.activeChannel.id !== found.id)) {
+                    this.activeChannel = found;
+                    this.form.stream_key = found.stream_key || '';
+                    this.loadAll();
+                }
+            }
+        },
+
+        async loadAll() {
+            await Promise.all([this.loadJobs(), this.loadVideoSources()]);
+        },
+
+        async loadJobs() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/livestream?channel_id=' + this.activeChannel.id);
+                const jobs = await r.json();
+                // Fetch stats for running jobs
+                for (const job of jobs) {
+                    if (job.status === 'running') {
+                        try {
+                            const sr = await fetch('/api/livestream/' + job.id + '/stats');
+                            const stats = await sr.json();
+                            job.stream_stats = stats.stream_stats ? JSON.parse(stats.stream_stats) : null;
+                            job.current_bitrate = stats.current_bitrate;
+                            job.current_fps = stats.current_fps;
+                        } catch(e) {}
+                    }
+                }
+                this.jobs = jobs;
+            } catch(e) {}
+        },
+
+        async loadVideoSources() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/livestream/video-sources/' + this.activeChannel.id);
+                this.videoSources = await r.json();
+            } catch(e) {
+                // Fallback: load from media API
+                try {
+                    const types = ['video-live', 'video', 'upload_ready', 'livestream-ready'];
+                    const sources = [];
+                    for (const t of types) {
+                        const r2 = await fetch('/api/media?channel_id=' + this.activeChannel.id + '&group=' + t + '&per_page=50');
+                        const d = await r2.json();
+                        (d.items || []).forEach(i => sources.push({label: t + '/' + i.filename, file_size: i.file_size || 0}));
+                    }
+                    this.videoSources = sources;
+                } catch(e2) {}
+            }
+        },
+
+        async loadMonitor() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/livestream/monitor?channel_id=' + this.activeChannel.id);
+                const d = await r.json();
+                if (d.monitors && d.monitors.length > 0) {
+                    this.streamMonitor = d.monitors[0];
+                } else {
+                    this.streamMonitor = null;
+                }
+            } catch(e) {}
+        },
+
+        formatDuration(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            if (h > 0) return h + 'h ' + m + 'm';
+            if (m > 0) return m + 'm ' + s + 's';
+            return s + 's';
+        },
+
+        async checkReadiness() {
+            if (!this.activeChannel) {
+                this.showAlert('bad', 'Pilih channel aktif dulu');
+                return;
+            }
+            try {
+                const r = await fetch('/api/livestream/readiness?channel_id=' + this.activeChannel.id);
+                this.readiness = await r.json();
+            } catch(e) {
+                this.showAlert('bad', 'Gagal cek kesiapan');
+            }
+        },
+
+        async cleanupJobs() {
+            if (!this.activeChannel) return;
+            if (!confirm('Cleanup semua job stuck? Ini akan menghentikan job yang masih running/pending.')) return;
+            try {
+                const r = await fetch('/api/livestream/cleanup-jobs?channel_id=' + this.activeChannel.id, {method: 'POST'});
+                const d = await r.json();
+                this.showAlert('ok', `Cleanup ${d.count} job`);
+                this.checkReadiness();
+                this.loadJobs();
+            } catch(e) {
+                this.showAlert('bad', 'Gagal cleanup');
+            }
+        },
+
+        previewThumbnail(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => { this.thumbnailPreview = e.target.result; };
+                reader.readAsDataURL(file);
+            }
+        },
+
+        clearThumbnail() {
+            this.thumbnailPreview = null;
+            if (this.$refs.thumbnailFile) this.$refs.thumbnailFile.value = '';
+        },
+
+        async uploadThumbnail(channelId) {
+            const fileInput = this.$refs.thumbnailFile;
+            if (!fileInput || !fileInput.files.length) return null;
+            const formData = new FormData();
+            formData.append('channel_id', channelId);
+            formData.append('asset_type', 'thumbnail');
+            formData.append('files', fileInput.files[0]);
+            try {
+                const r = await fetch('/api/media/upload', {method: 'POST', body: formData});
+                const d = await r.json();
+                if (d.uploaded && d.uploaded.length > 0) {
+                    return d.uploaded[0].file_path;
+                }
+            } catch(e) {}
+            return null;
+        },
+
+        async generateMetadata() {
+            if (!this.activeChannel) return;
+            const ch = this.activeChannel.id;
+            try {
+                const [titleRes, descRes, tagsRes] = await Promise.all([
+                    fetch('/api/uploads/bank-title/random?channel_id=' + ch),
+                    fetch('/api/uploads/clipboard-description?channel_id=' + ch),
+                    fetch('/api/uploads/clipboard-tags?channel_id=' + ch),
+                ]);
+                const titleData = await titleRes.json();
+                const descData = await descRes.json();
+                const tagsData = await tagsRes.json();
+
+                if (titleData.title) this.form.title = titleData.title;
+                if (descData.description) this.form.description = descData.description;
+                if (tagsData.tags) this.form.tags = tagsData.tags;
+
+                const parts = [];
+                if (titleData.title) parts.push('judul');
+                if (descData.description) parts.push('deskripsi');
+                if (tagsData.tags) parts.push('tags');
+
+                if (parts.length) {
+                    this.showAlert('ok', 'Generate: ' + parts.join(', ') + ' dari pool');
+                } else {
+                    this.showAlert('bad', 'Pool kosong. Upload file .txt dulu.');
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Gagal generate dari pool');
+            }
+        },
+
+        async saveStreamKey() {
+            if (!this.activeChannel || !this.form.stream_key) return;
+            try {
+                await fetch('/api/channels/' + this.activeChannel.id, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({stream_key: this.form.stream_key}),
+                });
+                this.activeChannel.stream_key = this.form.stream_key;
+                this.showAlert('ok', 'Stream key disimpan');
+            } catch(e) {
+                this.showAlert('bad', 'Gagal simpan stream key');
+            }
+        },
+
+        async checkToken() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/livestream/check-token?channel_id=' + this.activeChannel.id);
+                const d = await r.json();
+                this.tokenStatus = d.valid ? 'valid' : 'expired';
+                this.showAlert(d.valid ? 'ok' : 'bad', d.message);
+            } catch(e) {
+                this.tokenStatus = 'none';
+                this.showAlert('bad', 'Gagal check token');
+            }
+        },
+
+        async publishNow() {
+            if (!this.activeChannel) {
+                this.showAlert('bad', 'Pilih channel aktif dulu');
+                return;
+            }
+            if (!this.form.title || this.form.title.length < 3) {
+                this.showAlert('bad', 'Title minimal 3 karakter');
+                return;
+            }
+            if (!this.form.video_source) {
+                this.showAlert('bad', 'Pilih video source');
+                return;
+            }
+
+            this.submitting = true;
+            try {
+                let thumbnailPath = null;
+                if (this.$refs.thumbnailFile && this.$refs.thumbnailFile.files.length) {
+                    thumbnailPath = await this.uploadThumbnail(this.activeChannel.id);
+                }
+
+                const r = await fetch('/api/livestream/publish-now', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        channel_id: this.activeChannel.id,
+                        video_source: this.form.video_source,
+                        title: this.form.title,
+                        description: this.form.description,
+                        tags: this.form.tags,
+                        duration_hours: this.form.duration_hours,
+                        quality: this.form.quality,
+                        use_mp3: this.form.use_mp3,
+                        use_sfx: this.form.use_sfx,
+                        made_for_kids: this.form.made_for_kids,
+                        visibility: this.form.visibility,
+                        stream_key: this.form.stream_key || null,
+                        thumbnail_path: thumbnailPath,
+                    }),
+                });
+                const d = await r.json();
+                if (r.ok && d.success) {
+                    this.showAlert('ok', d.message);
+                    this.clearThumbnail();
+                    this.loadJobs();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal start live');
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Error: ' + e.message);
+            }
+            this.submitting = false;
+        },
+
+        async scheduleLive() {
+            if (!this.activeChannel) {
+                this.showAlert('bad', 'Pilih channel aktif dulu');
+                return;
+            }
+            if (!this.form.title || this.form.title.length < 3) {
+                this.showAlert('bad', 'Title minimal 3 karakter');
+                return;
+            }
+            if (!this.schedule.date || !this.schedule.time) {
+                this.showAlert('bad', 'Isi tanggal dan jam');
+                return;
+            }
+
+            const startAtWib = this.schedule.date + 'T' + this.schedule.time + ':00';
+
+            try {
+                let thumbnailPath = null;
+                if (this.$refs.thumbnailFile && this.$refs.thumbnailFile.files.length) {
+                    thumbnailPath = await this.uploadThumbnail(this.activeChannel.id);
+                }
+
+                const r = await fetch('/api/livestream/schedule', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        channel_id: this.activeChannel.id,
+                        video_source: this.form.video_source,
+                        title: this.form.title,
+                        description: this.form.description,
+                        tags: this.form.tags,
+                        duration_hours: this.form.duration_hours,
+                        quality: this.form.quality,
+                        use_mp3: this.form.use_mp3,
+                        use_sfx: this.form.use_sfx,
+                        made_for_kids: this.form.made_for_kids,
+                        visibility: this.form.visibility,
+                        stream_key: this.form.stream_key || null,
+                        start_at_wib: startAtWib,
+                        thumbnail_path: thumbnailPath,
+                    }),
+                });
+                const d = await r.json();
+                if (r.ok && d.success) {
+                    this.showAlert('ok', d.message);
+                    this.showSchedule = false;
+                    this.clearThumbnail();
+                    this.loadJobs();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal schedule');
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Error: ' + e.message);
+            }
+        },
+
+        editJob(job) {
+            this.form.title = job.title || '';
+            this.form.description = job.description || '';
+            this.form.tags = job.tags || '';
+            this.form.duration_hours = job.duration_hours || 12;
+            this.form.quality = job.quality || 'low';
+            this.form.use_mp3 = job.use_mp3 !== false;
+            this.form.use_sfx = job.use_sfx !== false;
+            this.form.visibility = job.visibility || 'unlisted';
+            this.form.made_for_kids = job.made_for_kids || false;
+            this.editingJobId = job.id;
+            this.showEditModal = true;
+        },
+
+        async saveEditJob() {
+            if (!this.editingJobId) return;
+            try {
+                const r = await fetch('/api/livestream/' + this.editingJobId, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        title: this.form.title,
+                        description: this.form.description,
+                        tags: this.form.tags,
+                        duration_hours: this.form.duration_hours,
+                        quality: this.form.quality,
+                        use_mp3: this.form.use_mp3,
+                        use_sfx: this.form.use_sfx,
+                        visibility: this.form.visibility,
+                        made_for_kids: this.form.made_for_kids,
+                    }),
+                });
+                const d = await r.json();
+                if (r.ok && d.success) {
+                    this.showAlert('ok', 'Job updated');
+                    this.showEditModal = false;
+                    this.editingJobId = null;
+                    this.loadJobs();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal update');
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Error: ' + e.message);
+            }
+        },
+
+        cancelEdit() {
+            this.showEditModal = false;
+            this.editingJobId = null;
+        },
+
+        async stopJob(id) {
+            if (!confirm('Stop livestream ini?')) return;
+            try {
+                await fetch('/api/livestream/' + id + '/stop', {method: 'POST'});
+                this.loadJobs();
+            } catch(e) {}
+        },
+
+        async deleteJob(id) {
+            if (!confirm('Hapus job ini?')) return;
+            try {
+                await fetch('/api/livestream/' + id, {method: 'DELETE'});
+                this.loadJobs();
+            } catch(e) {}
+        },
+
+        async checkerGlobal() {
+            try {
+                const r = await fetch('/api/livestream/checker-global');
+                const d = await r.json();
+                this.showAlert('ok', 'Running: ' + d.running_count + ' job');
+            } catch(e) {}
+        },
+
+        async killGlobal() {
+            if (!confirm('Kill semua livestream yang berjalan?')) return;
+            try {
+                const r = await fetch('/api/livestream/kill-global');
+                const d = await r.json();
+                this.showAlert('ok', d.killed + ' proses di-kill');
+                this.loadJobs();
+            } catch(e) {}
+        },
+
+        showAlert(type, msg) {
+            this.alertType = type;
+            this.alertMsg = msg;
+            setTimeout(() => { this.alertMsg = ''; }, 5000);
+        },
+
+        formatBytes(bytes) {
+            if (!bytes) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+            return (bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + units[i];
+        },
+    };
+}
+</script>
+{% endblock %}

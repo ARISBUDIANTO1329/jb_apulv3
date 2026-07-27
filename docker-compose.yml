@@ -1,0 +1,142 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jb_apulv3}
+      POSTGRES_USER: ${POSTGRES_USER:-jb_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jb_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jb_user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: no
+
+  # Redis (cache + queue + pub/sub)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: no
+
+  # FastAPI Backend (serves API + HTML)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./backend:/app
+      - storage_data:/app/storage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: no
+
+  # Production Worker
+  worker-production:
+    build:
+      context: ./workers/production
+      dockerfile: Dockerfile
+    volumes:
+      - ./workers/production:/app
+      - storage_data:/app/storage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: no
+
+  # Livestream Worker
+  worker-livestream:
+    build:
+      context: ./workers/livestream
+      dockerfile: Dockerfile
+    ports:
+      - "9999:9999"
+    volumes:
+      - ./workers/livestream:/app
+      - storage_data:/app/storage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
+      - REDIS_URL=redis://redis:6379/0
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: no
+
+  # Upload Worker (YouTube Upload)
+  worker-upload:
+    build:
+      context: ./workers/upload
+      dockerfile: Dockerfile
+    volumes:
+      - ./workers/upload:/app
+      - storage_data:/app/storage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
+      - REDIS_URL=redis://redis:6379/0
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: no
+
+  # Shorts Worker
+  worker-shorts:
+    build:
+      context: ./workers/shorts
+      dockerfile: Dockerfile
+    volumes:
+      - ./workers/shorts:/app
+      - storage_data:/app/storage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
+      - REDIS_URL=redis://redis:6379/0
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: no
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_data:

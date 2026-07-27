@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}📊 Dashboard{% endblock %}
+
+{% block content %}
+<!-- System Stats -->
+<div class="stats-row stats-3">
+  <div class="stat-card">
+    <div class="stat-label">🖥️ CPU Usage</div>
+    <div class="stat-value" id="cpu-val">-</div>
+    <div class="progress"><div class="progress-bar bg-green" id="cpu-bar" style="width:0%"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">💾 Memory</div>
+    <div class="stat-value" id="mem-val">-</div>
+    <div class="stat-sub" id="mem-sub">-</div>
+    <div class="progress"><div class="progress-bar bg-green" id="mem-bar" style="width:0%"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">💿 Disk</div>
+    <div class="stat-value" id="disk-val">-</div>
+    <div class="stat-sub" id="disk-sub">-</div>
+    <div class="progress"><div class="progress-bar bg-green" id="disk-bar" style="width:0%"></div></div>
+  </div>
+</div>
+
+<!-- Channel Stats -->
+<div class="stats-row stats-1">
+  <div class="stat-card"><div class="stat-label">Channels</div><div class="stat-value" id="s-ch">0</div></div>
+</div>
+
+<!-- Channel Cards -->
+<div id="ch-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadStats() {
+  try {
+    var s = await api('/system/stats');
+    document.getElementById('cpu-val').textContent = s.cpu_percent + '%';
+    document.getElementById('cpu-bar').style.width = s.cpu_percent + '%';
+    document.getElementById('cpu-bar').className = 'progress-bar bg-' + progressColor(s.cpu_percent);
+    document.getElementById('mem-val').textContent = s.memory.percent + '%';
+    document.getElementById('mem-sub').textContent = s.memory.used_mb + ' / ' + s.memory.total_mb + ' MB';
+    document.getElementById('mem-bar').style.width = s.memory.percent + '%';
+    document.getElementById('mem-bar').className = 'progress-bar bg-' + progressColor(s.memory.percent);
+    document.getElementById('disk-val').textContent = s.disk.percent + '%';
+    document.getElementById('disk-sub').textContent = s.disk.used + ' / ' + s.disk.total;
+    document.getElementById('disk-bar').style.width = s.disk.percent + '%';
+    document.getElementById('disk-bar').className = 'progress-bar bg-' + progressColor(s.disk.percent);
+  } catch(e) { console.error('loadStats error:', e); }
+}
+
+
+function formatDateTime(isoStr) {
+  if (!isoStr) return '-';
+  try {
+    var d = new Date(isoStr);
+    var day = d.getDate();
+    var months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+    var month = months[d.getMonth()];
+    var year = d.getFullYear();
+    var hours = String(d.getHours()).padStart(2, '0');
+    var mins = String(d.getMinutes()).padStart(2, '0');
+    return day + ' ' + month + ' ' + year + ', ' + hours + ':' + mins;
+  } catch(e) { return isoStr; }
+}
+
+function reconnectGoogle(channelId) {
+  window.open('/api/auth/google/connect-redirect/' + channelId, '_blank');
+}
+
+function renderDashboard() {
+  var sCh = document.getElementById('s-ch');
+  if (sCh) sCh.textContent = channels ? channels.length : 0;
+  var box = document.getElementById('ch-cards');
+  if (!box) return;
+  if (!channels || !channels.length) {
+    box.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:48px;color:#94a3b8;">' +
+      '<div style="font-size:40px;margin-bottom:12px;">📺</div>' +
+      '<p style="font-size:16px;margin-bottom:8px;color:#64748b;">Belum ada channel</p>' +
+      '<p style="font-size:13px;">Klik "+ Tambah Channel" untuk memulai</p></div>';
+    return;
+  }
+
+  var COLORS = ['#2563eb','#7c3aed','#ec4899','#f43f5e','#f97316','#eab308','#059669','#0d9488','#0891b2','#4f46e5'];
+  var html = '';
+
+  for (var i = 0; i < channels.length; i++) {
+    var ch = channels[i];
+    var color = COLORS[i % COLORS.length];
+    var lastUpload = formatDateTime(ch.last_upload);
+    var lastLive = formatDateTime(ch.last_livestream);
+    // Token status — determine state from API data
+    var now = new Date();
+    var expiresAt = ch.token_expires_at ? new Date(ch.token_expires_at) : null;
+    var isExpired = !ch.access_token || (expiresAt && expiresAt < now);
+    var isExpiring = !isExpired && expiresAt && (expiresAt - now) < 3600000;
+
+    var tokenIcon, tokenLabel, tokenMsg, tokenColor, tokenBg, tokenBorder, tokenAction;
+
+    if (!ch.access_token) {
+      tokenIcon = '🔌'; tokenLabel = 'BELUM TERHUBUNG'; tokenColor = '#6366f1'; tokenBg = 'rgba(99,102,241,.06)'; tokenBorder = 'rgba(99,102,241,.2)';
+      tokenMsg = 'Channel belum terkoneksi ke Google';
+      tokenAction = '<button onclick="reconnectGoogle(' + ch.id + ')" style="font-size:10px;font-weight:700;padding:5px 12px;border-radius:8px;border:1px solid rgba(99,102,241,.3);background:rgba(99,102,241,.1);color:#6366f1;cursor:pointer;transition:all .2s;">🔗 Hubungkan Google</button>';
+    } else if (ch.token_status === 'error') {
+      tokenIcon = '❌'; tokenLabel = 'ERROR'; tokenColor = '#ef4444'; tokenBg = 'rgba(239,68,68,.06)'; tokenBorder = 'rgba(239,68,68,.2)';
+      tokenMsg = ch.token_error || 'Token refresh gagal';
+      tokenAction = '<button onclick="reconnectGoogle(' + ch.id + ')" style="font-size:10px;font-weight:700;padding:5px 12px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;transition:all .2s;">🔄 Reconnect</button>';
+    } else if (isExpired) {
+      tokenIcon = '⏰'; tokenLabel = 'EXPIRED'; tokenColor = '#ef4444'; tokenBg = 'rgba(239,68,68,.06)'; tokenBorder = 'rgba(239,68,68,.2)';
+      tokenMsg = 'Token sudah kedaluwarsa';
+      tokenAction = '<button onclick="reconnectGoogle(' + ch.id + ')" style="font-size:10px;font-weight:700;padding:5px 12px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;transition:all .2s;">🔄 Reconnect</button>';
+    } else if (isExpiring) {
+      var minsLeft = Math.round((expiresAt - now) / 60000);
+      tokenIcon = '⚠️'; tokenLabel = 'AKAN EXPIRED'; tokenColor = '#f59e0b'; tokenBg = 'rgba(245,158,11,.06)'; tokenBorder = 'rgba(245,158,11,.2)';
+      tokenMsg = 'Sisa ' + minsLeft + ' menit lagi';
+      tokenAction = '<button onclick="reconnectGoogle(' + ch.id + ')" style="font-size:10px;font-weight:700;padding:5px 12px;border-radius:8px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.1);color:#f59e0b;cursor:pointer;transition:all .2s;">🔄 Reconnect</button>';
+    } else {
+      tokenIcon = '✅'; tokenLabel = 'VALID'; tokenColor = '#10b981'; tokenBg = 'rgba(16,185,129,.06)'; tokenBorder = 'rgba(16,185,129,.2)';
+      if (expiresAt) {
+        var hrsLeft = Math.round((expiresAt - now) / 3600000);
+        tokenMsg = 'Berlaku ~' + hrsLeft + ' jam lagi';
+      } else {
+        tokenMsg = 'Token aktif';
+      }
+      tokenAction = '';
+    }
+
+    // Status badge
+    var statusColor = ch.status === 'active' ? '#10b981' : ch.status === 'paused' ? '#f59e0b' : '#64748b';
+    var statusBg = ch.status === 'active' ? 'rgba(16,185,129,.1)' : ch.status === 'paused' ? 'rgba(245,158,11,.1)' : 'rgba(100,116,139,.1)';
+
+    html += '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;transition:all .3s;box-shadow:0 1px 3px rgba(0,0,0,.04);" onmouseenter="this.style.borderColor=\'#93c5fd\';this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 8px 24px rgba(0,0,0,.08)\'" onmouseleave="this.style.borderColor=\'#e2e8f0\';this.style.transform=\'none\';this.style.boxShadow=\'0 1px 3px rgba(0,0,0,.04)\'">';
+
+    // Header with colored left border
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:20px 20px 0;border-top:3px solid ' + color + ';">';
+    html += '<div style="width:44px;height:44px;border-radius:12px;background:' + color + '15;display:grid;place-items:center;font-weight:900;font-size:15px;color:' + color + '">' + ch.name.substring(0,2).toUpperCase() + '</div>';
+    html += '<div style="flex:1;min-width:0;">';
+    html += '<div style="font-weight:700;font-size:15px;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + ch.name + '</div>';
+    html += '<div style="font-size:11px;color:#94a3b8;font-family:monospace;">#' + ch.id + ' • ' + (ch.niche || '-') + '</div>';
+    html += '</div>';
+    html += '<span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;background:' + statusBg + ';color:' + statusColor + ';">' + ch.status.toUpperCase() + '</span>';
+    html += '</div>';
+
+    // Stats row
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:16px 20px;">';
+    html += '<div style="text-align:center;padding:10px;border-radius:10px;background:#f8fafc;border:1px solid #f1f5f9;">';
+    html += '<div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Subs</div>';
+    html += '<div style="font-size:16px;font-weight:800;margin-top:4px;color:#0f172a;">' + fmt(ch.subscriber_count) + '</div></div>';
+    html += '<div style="text-align:center;padding:10px;border-radius:10px;background:#f8fafc;border:1px solid #f1f5f9;">';
+    html += '<div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Views</div>';
+    html += '<div style="font-size:16px;font-weight:800;margin-top:4px;color:#0f172a;">' + fmt(ch.total_views) + '</div></div>';
+    html += '<div style="text-align:center;padding:10px;border-radius:10px;background:#f8fafc;border:1px solid #f1f5f9;">';
+    html += '<div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Videos</div>';
+    html += '<div style="font-size:16px;font-weight:800;margin-top:4px;color:#0f172a;">' + ch.video_count + '</div></div>';
+    html += '</div>';
+
+    // Token status section
+    html += '<div style="padding:10px 20px;margin:0 20px 12px;border-radius:10px;border:1px solid ' + tokenBorder + ';background:' + tokenBg + ';display:flex;align-items:center;gap:10px;">';
+    html += '<span style="font-size:18px;">' + tokenIcon + '</span>';
+    html += '<div style="flex:1;min-width:0;">';
+    html += '<div style="font-size:11px;font-weight:800;color:' + tokenColor + ';letter-spacing:.03em;">🔑 Token: ' + tokenLabel + '</div>';
+    html += '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + tokenMsg + '</div>';
+    html += '</div>';
+    if (tokenAction) html += '<div>' + tokenAction + '</div>';
+    html += '</div>';
+
+    // Last activity
+    html += '<div style="padding:0 20px 12px;display:flex;flex-direction:column;gap:4px;">';
+    html += '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;">';
+    html += '<span style="color:#94a3b8;">📤</span> <span>Last upload:</span> <span style="font-weight:600;color:#475569;">' + lastUpload + '</span></div>';
+    html += '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;">';
+    html += '<span style="color:#94a3b8;">🔴</span> <span>Last live:</span> <span style="font-weight:600;color:#475569;">' + lastLive + '</span></div>';
+    html += '</div>';
+
+    // Actions row
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-top:1px solid #f1f5f9;align-items:center;">';
+
+    // Feature badges
+    if (ch.stream_key) html += '<span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:rgba(16,185,129,.08);color:#10b981;">🔑 Stream Key</span>';
+    if (ch.proxy_host) html += '<span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:rgba(59,130,246,.08);color:#60a5fa;">🌐 Proxy</span>';
+    if (ch.chrome_profile) html += '<span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;background:rgba(139,92,246,.08);color:#a78bfa;">🖥 Chrome</span>';
+
+    // Delete button (right aligned)
+    html += '<div style="margin-left:auto;">';
+    html += '<button onclick="deleteChannel(' + ch.id + ')" style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.15);background:transparent;color:#94a3b8;cursor:pointer;transition:all .2s;" onmouseenter="this.style.color=\'#ef4444\';this.style.borderColor=\'rgba(239,68,68,.4)\'" onmouseleave="this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(239,68,68,.15)\'">🗑️ Hapus</button>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '</div>';
+  }
+
+  box.innerHTML = html;
+  console.log('[Dashboard] rendered ' + channels.length + ' channel cards');
+}
+
+function onChannelChange() {
+  renderDashboard();
+}
+
+loadStats();
+setInterval(loadStats, 30000);
+if (typeof loadChannels === 'function') {
+  loadChannels().then(function() { renderDashboard(); }).catch(function(e) { console.error('[Dashboard] loadChannels error:', e); });
+} else {
+  console.error('[Dashboard] loadChannels not defined');
+}
+</script>
+{% endblock %}

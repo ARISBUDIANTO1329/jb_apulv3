@@ -1,0 +1,854 @@
+{% extends "base.html" %}
+{% block title %}Production{% endblock %}
+{% block content %}
+<div x-data="productionPage()" x-init="init()" class="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-5">
+
+    {# ── LEFT: Workstation ── #}
+    <div class="space-y-5">
+
+        {# Alert #}
+        <div x-show="alertMsg" x-cloak
+             class="p-4 rounded-xl text-sm font-semibold"
+             :class="alertType === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'"
+             x-text="alertMsg"></div>
+
+        {# Method Selector #}
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="text-sm font-bold text-slate-900 mb-4">Production Method</div>
+            <div class="grid grid-cols-3 gap-3">
+                <template x-for="m in methods" :key="m.key">
+                    <button @click="selectMethod(m.key)"
+                            class="text-left p-4 rounded-xl border-2 transition-all"
+                            :class="selectedMethod === m.key ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-200'">
+                        <div class="text-xs font-bold text-slate-900 uppercase" x-text="m.label"></div>
+                        <div class="text-[11px] text-slate-500 mt-1" x-text="m.desc"></div>
+                    </button>
+                </template>
+            </div>
+        </div>
+
+        {# Target Channel #}
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center gap-3">
+                <div class="text-[10px] font-bold text-slate-400 uppercase">Target:</div>
+                <div class="text-sm font-bold text-slate-900" x-text="activeChannel?.name || '-'"></div>
+                <div class="text-xs text-slate-400" x-text="'(ID: ' + (activeChannel?.id || '-') + ')'"></div>
+            </div>
+        </div>
+
+        {# ── Method 1: Ready Video (Final Production) ── #}
+        <div x-show="selectedMethod === 'ready_video'" class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+            <div class="text-sm font-bold text-slate-900">Final Production — Seamless Video</div>
+
+            {# Video multi-select #}
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Pilih Video</label>
+                <select x-model="form.videos" multiple
+                        class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm h-32 focus:border-blue-400 outline-none">
+                    <template x-for="v in media.video" :key="v.id">
+                        <option :value="v.filename" x-text="v.original_name"></option>
+                    </template>
+                </select>
+                <div class="text-xs text-slate-400 mt-1" x-text="form.videos.length + ' video dipilih'"></div>
+            </div>
+
+            {# Pick Random #}
+            <label class="flex items-center gap-2">
+                <input type="checkbox" x-model="form.pick_random" class="rounded border-slate-300">
+                <span class="text-sm text-slate-700">Pick Random (1 video, skip cooldown)</span>
+            </label>
+
+            {# Intro #}
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Intro Video (opsional)</label>
+                <select x-model="form.intro_file" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                    <option value="">Tanpa Intro</option>
+                    <template x-for="v in media.intro" :key="v.id">
+                        <option :value="v.filename" x-text="v.original_name"></option>
+                    </template>
+                </select>
+            </div>
+
+            {# Audio Mode #}
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Audio Mode</label>
+                    <select x-model="form.mp3_mode" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="shuffle">Shuffle Playlist</option>
+                        <option value="single">Single MP3</option>
+                    </select>
+                </div>
+                <div x-show="form.duration_mode !== 'manual'">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Jumlah MP3</label>
+                    <input type="number" x-model.number="form.num_songs" min="1" max="10" :disabled="!form.use_mp3"
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none disabled:opacity-50">
+                </div>
+            </div>
+
+            {# Use MP3/SFX toggles #}
+            <div class="grid grid-cols-2 gap-3">
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" x-model="form.use_mp3" class="rounded border-slate-300">
+                    <span class="text-sm text-slate-700">Pakai MP3</span>
+                </label>
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" x-model="form.use_sfx" class="rounded border-slate-300">
+                    <span class="text-sm text-slate-700">Pakai SFX</span>
+                </label>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Single MP3 File</label>
+                    <select x-model="form.mp3_file" :disabled="form.mp3_mode !== 'single' || !form.use_mp3"
+                            class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none disabled:opacity-50">
+                        <option value="">-- Pilih jika Single MP3 --</option>
+                        <template x-for="m in media.mp3" :key="m.id">
+                            <option :value="m.filename" x-text="m.original_name"></option>
+                        </template>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">SFX File (opsional)</label>
+                    <select x-model="form.sfx_file" :disabled="!form.use_sfx"
+                            class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none disabled:opacity-50">
+                        <option value="">Auto / Default SFX</option>
+                        <template x-for="s in media.sfx" :key="s.id">
+                            <option :value="s.filename" x-text="s.original_name"></option>
+                        </template>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Durasi</label>
+                    <select x-model="form.duration_mode" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="mp3">Ikut MP3</option>
+                        <option value="manual">Manual (detik)</option>
+                    </select>
+                </div>
+                <div x-show="form.duration_mode === 'manual'">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Custom Durasi</label>
+                    <input type="text" x-model="form.custom_duration" placeholder="02:00:00"
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none font-mono">
+                    <div class="text-[10px] text-slate-400 mt-1">Format: HH:MM:SS (contoh: 02:00:00)</div>
+                </div>
+            </div>
+        </div>
+
+        {# ── Method 2: Raw Video Auto Seamless ── #}
+        <div x-show="selectedMethod === 'raw_video_auto_seamless'" class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+            <div class="text-sm font-bold text-slate-900">Static Video — Raw to Seamless</div>
+
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Raw Materials</label>
+                <select x-model="form.videos_raw" multiple
+                        class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm h-32 focus:border-blue-400 outline-none">
+                    <template x-for="v in media['video-raw']" :key="v.id">
+                        <option :value="v.filename" x-text="v.original_name"></option>
+                    </template>
+                </select>
+                <div class="text-xs text-slate-400 mt-1" x-text="form.videos_raw.length + ' video dipilih'"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tail (detik)</label>
+                    <select x-model.number="form.tail_length" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="1">1 detik</option>
+                        <option value="2">2 detik</option>
+                        <option value="3">3 detik</option>
+                        <option value="4">4 detik</option>
+                        <option value="5">5 detik</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">End Slowmo</label>
+                    <select x-model.number="form.slowmo_percent" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="0">None</option>
+                        <option value="10">10% Slow</option>
+                        <option value="20">20% Slow</option>
+                        <option value="30">30% Slow</option>
+                        <option value="40">40% Slow</option>
+                        <option value="50">50% Slow</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        {# ── Method 3: Merge Video (Dynamic) ── #}
+        <div x-show="selectedMethod === 'merge_video'" class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+            <div class="text-sm font-bold text-slate-900">Dynamic Video — Merge Raw Footage</div>
+            <div class="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700">
+                Menggunakan Raw Pool: <strong x-text="media['video-raw']?.length || 0"></strong> footage tersedia
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Jumlah Hasil</label>
+                    <input type="number" x-model.number="form.dynamic_output_count" min="1" max="50"
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Video per Merge</label>
+                    <input type="number" x-model.number="form.merge_count" min="2" max="50"
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Resolusi</label>
+                    <select x-model="form.merge_resolution" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="1920x1080">1920x1080</option>
+                        <option value="1280x720">1280x720</option>
+                        <option value="1080x1920">1080x1920 (Vertikal)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Speed</label>
+                    <input type="number" x-model.number="form.merge_speed" min="0.1" max="2" step="0.1"
+                           class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Transisi</label>
+                    <select x-model="form.merge_transition_enabled" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="true">Aktif</option>
+                        <option value="false">Nonaktif</option>
+                    </select>
+                </div>
+                <div x-show="form.merge_transition_enabled === 'true'">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tipe Transisi</label>
+                    <select x-model="form.merge_transition_name" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        <option value="fade">Fade</option>
+                        <option value="wipeleft">Wipe Left</option>
+                        <option value="wiperight">Wipe Right</option>
+                        <option value="slideleft">Slide Left</option>
+                        <option value="slideright">Slide Right</option>
+                    </select>
+                </div>
+            </div>
+
+            <div x-show="form.merge_transition_enabled === 'true'">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Durasi Transisi (detik)</label>
+                <input type="number" x-model.number="form.merge_transition_duration" min="0.5" max="5" step="0.5"
+                       class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+            </div>
+        </div>
+
+        {# Submit Buttons #}
+        <div class="flex gap-3">
+            <button @click="submitProduction(false)" :disabled="submitting"
+                    class="px-6 py-3 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-50 transition-all">
+                <span x-show="!submitting">🚀 Start Now</span>
+                <span x-show="submitting">Processing...</span>
+            </button>
+            <button x-show="selectedMethod !== 'merge_video'" @click="submitProduction(true)" :disabled="submitting"
+                    class="px-6 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                ⚡ Start All
+            </button>
+        </div>
+
+        {# FIX BUG 2: Real Progress Bar with polling #}
+        <div x-show="submitting || activeJobId" class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-sm font-bold text-slate-900" x-text="submitStatus"></div>
+                <span class="text-xs font-bold" :class="activeJobProgress >= 100 ? 'text-emerald-600' : 'text-blue-600'" x-text="activeJobProgress + '%'"></span>
+            </div>
+            <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-500"
+                     :class="activeJobProgress >= 100 ? 'bg-emerald-500' : activeJobFailed ? 'bg-rose-500' : 'bg-gradient-to-r from-blue-500 to-emerald-500'"
+                     :style="'width:' + activeJobProgress + '%'"></div>
+            </div>
+            <div class="flex items-center justify-between mt-2">
+                <div class="text-[11px] text-slate-500" x-text="activeJobStage"></div>
+                <button x-show="activeJobProgress >= 100 || activeJobFailed" @click="activeJobId=null; activeJobProgress=0; activeJobFailed=false"
+                        class="text-[10px] text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+        </div>
+    </div>
+
+    {# ── RIGHT: Monitors & Jobs ── #}
+    <div class="space-y-5">
+
+        {# Runtime Status #}
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="text-sm font-bold text-slate-900 mb-3">Runtime Status</div>
+            <div class="flex gap-2 flex-wrap">
+                <span class="text-xs px-2 py-1 rounded-full font-semibold"
+                      :class="runtime.orchestrator ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                      x-text="'Worker: ' + (runtime.orchestrator ? 'RUNNING' : 'IDLE')"></span>
+                <span class="text-xs px-2 py-1 rounded-full font-semibold"
+                      :class="runtime.ffmpeg ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                      x-text="'FFmpeg: ' + (runtime.ffmpeg ? 'RUNNING' : 'IDLE')"></span>
+            </div>
+        </div>
+
+        {# ── Seamless Monitor (Static Video) ── #}
+        <div x-show="selectedMethod === 'raw_video_auto_seamless'" class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="text-sm font-bold text-slate-900 mb-3">Seamless Monitor</div>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+                <div class="bg-blue-50 rounded-lg p-2 text-center">
+                    <div class="text-[10px] font-bold text-blue-400 uppercase">Active</div>
+                    <div class="text-lg font-extrabold text-blue-600" x-text="seamless.active_count"></div>
+                </div>
+                <div class="bg-emerald-50 rounded-lg p-2 text-center">
+                    <div class="text-[10px] font-bold text-emerald-400 uppercase">Success</div>
+                    <div class="text-lg font-extrabold text-emerald-600" x-text="seamless.success_count"></div>
+                </div>
+                <div class="bg-rose-50 rounded-lg p-2 text-center">
+                    <div class="text-[10px] font-bold text-rose-400 uppercase">Failed</div>
+                    <div class="text-lg font-extrabold text-rose-600" x-text="seamless.failed_count"></div>
+                </div>
+            </div>
+
+            {# Active progress items #}
+            <template x-for="item in seamless.active" :key="item.id">
+                <div class="mb-2 p-2 rounded-lg border border-blue-100 bg-blue-50/50">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[11px] font-bold text-slate-900 truncate max-w-[180px]" x-text="item.raw_filename"></span>
+                        <span class="text-[11px] font-extrabold text-blue-600" x-text="item.progress + '%'"></span>
+                    </div>
+                    <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500 rounded-full transition-all" :style="'width:' + item.progress + '%'"></div>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-1" x-text="item.message || 'Processing...'"></div>
+                </div>
+            </template>
+
+            {# Recent seamless outputs #}
+            <div x-show="seamless.recent.length > 0" class="mt-3">
+                <div class="text-[10px] font-bold text-slate-400 uppercase mb-2">Recent Outputs</div>
+                <template x-for="item in seamless.recent" :key="item.id">
+                    <div class="flex justify-between items-center py-1.5 border-b border-slate-50 last:border-0">
+                        <div class="truncate max-w-[160px]">
+                            <div class="text-[11px] font-semibold text-slate-900" x-text="item.original_name"></div>
+                            <div class="text-[10px] text-slate-400" x-text="formatSize(item.file_size)"></div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        {# FIX BUG 3: Dynamic Live Status with real progress #}
+        <div x-show="selectedMethod === 'merge_video'" class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-bold text-slate-900">Dynamic Live Status</div>
+                <span class="text-xs px-2 py-1 rounded-full font-semibold"
+                      :class="dynamicStatus.status === 'running' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                      x-text="dynamicStatus.status?.toUpperCase() || 'IDLE'"></span>
+            </div>
+            <div class="flex items-center gap-3 mb-2">
+                <div class="text-2xl font-extrabold" :class="dynamicStatus.progress >= 100 ? 'text-emerald-600' : 'text-blue-600'" x-text="dynamicStatus.progress + '%'"></div>
+                <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all" :class="dynamicStatus.progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'" :style="'width:' + (dynamicStatus.progress || 0) + '%'"></div>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[10px]">
+                <div><span class="text-slate-400">Batch:</span> <span class="font-bold" x-text="dynamicStatus.current_output + ' / ' + dynamicStatus.output_count"></span></div>
+                <div><span class="text-slate-400">Video/Merge:</span> <span class="font-bold" x-text="dynamicStatus.video_per_merge"></span></div>
+                <div><span class="text-slate-400">Elapsed:</span> <span class="font-bold" x-text="formatElapsed(dynamicStatus.elapsed_seconds)"></span></div>
+                <div><span class="text-slate-400">File:</span> <span class="font-bold truncate" x-text="dynamicStatus.output_file || '-'"></span></div>
+            </div>
+            <div class="text-[11px] text-slate-600 mt-2" x-text="dynamicStatus.message"></div>
+        </div>
+
+        {# ── Final Production Jobs ── #}
+        <div x-show="selectedMethod === 'ready_video'" class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-bold text-slate-900">Final Production Monitor</div>
+                <div class="flex gap-2">
+                    <button @click="loadJobs()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+                    <button x-show="jobs.length > 0" @click="deleteAllJobs()"
+                            class="text-xs px-2 py-1 rounded border border-rose-200 text-rose-500 hover:bg-rose-50">Delete All</button>
+                </div>
+            </div>
+
+            {# KPI Cards #}
+            <div class="grid grid-cols-2 gap-2 mb-3">
+                <div class="bg-emerald-50 rounded-lg p-2 text-center">
+                    <div class="text-[10px] font-bold text-emerald-400 uppercase">Success</div>
+                    <div class="text-lg font-extrabold text-emerald-600" x-text="jobs.filter(j => j.final_status === 'done').length"></div>
+                </div>
+                <div class="bg-rose-50 rounded-lg p-2 text-center">
+                    <div class="text-[10px] font-bold text-rose-400 uppercase">Failed</div>
+                    <div class="text-lg font-extrabold text-rose-600" x-text="jobs.filter(j => ['failed','error'].includes(j.audio_status) || ['failed','error'].includes(j.video_status) || ['failed','error'].includes(j.final_status)).length"></div>
+                </div>
+            </div>
+
+            {# Empty #}
+            <div x-show="jobs.length === 0" class="py-8 text-center text-sm text-slate-400">
+                Belum ada production job
+            </div>
+
+            {# Job Table #}
+            <div x-show="jobs.length > 0" class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-100">
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">File</th>
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Stage</th>
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Progress</th>
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">ETA</th>
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="job in jobs" :key="job.id">
+                            <tr class="border-b border-slate-50 hover:bg-slate-50">
+                                <td class="py-2 px-2">
+                                    <div class="font-semibold text-slate-900 max-w-[120px] truncate" x-text="job.output_filename || '#' + job.id"></div>
+                                    <div class="text-[10px] text-slate-400" x-text="job.process_status || job.production_method"></div>
+                                </td>
+                                <td class="py-2 px-2">
+                                    <div class="flex gap-1">
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                              :class="job.audio_status === 'done' ? 'bg-emerald-50 text-emerald-700' : job.audio_status === 'failed' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-500'"
+                                              x-text="'A:' + job.audio_status"></span>
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                              :class="job.video_status === 'done' ? 'bg-emerald-50 text-emerald-700' : job.video_status === 'failed' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-500'"
+                                              x-text="'V:' + job.video_status"></span>
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                              :class="job.final_status === 'done' ? 'bg-emerald-50 text-emerald-700' : job.final_status === 'failed' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-500'"
+                                              x-text="'F:' + (job.final_status || '-')"></span>
+                                    </div>
+                                </td>
+                                <td class="py-2 px-2">
+                                    <div class="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                        <div class="h-full rounded-full transition-all"
+                                             :class="job.progress >= 100 ? 'bg-emerald-500' : job.status === 'failed' ? 'bg-rose-500' : 'bg-blue-500'"
+                                             :style="'width:' + (job.progress || 0) + '%'"></div>
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5" x-text="(job.progress || 0) + '%'"></div>
+                                </td>
+                                <td class="py-2 px-2">
+                                    <span class="text-[10px] font-bold" :class="job.progress >= 100 ? 'text-emerald-600' : 'text-amber-600'" x-text="job.progress >= 100 ? 'Done' : calcEta(job)"></span>
+                                </td>
+                                <td class="py-2 px-2">
+                                    <div class="flex gap-1">
+                                        <button x-show="job.final_status === 'done'" @click="sendToUploadReady(job.id)"
+                                                class="px-2 py-1 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100">Upload</button>
+                                        <button x-show="job.final_path" @click="previewJob(job.id)"
+                                                class="px-2 py-1 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100">👁</button>
+                                        {# FIX BUG 8: Retry button for failed jobs #}
+                                        <button x-show="job.status === 'failed'" @click="retryJob(job.id)"
+                                                class="px-2 py-1 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100">↻</button>
+                                        <button @click="deleteJob(job.id)"
+                                                class="px-2 py-1 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100">🗑</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {# ── Dynamic Video Monitor ── #}
+        <div x-show="selectedMethod === 'merge_video'" class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-bold text-slate-900">Dynamic Video Monitor</div>
+                <button @click="loadJobs()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-100">
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Source</th>
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Progress</th>
+                            <th class="text-left py-2 px-2 font-bold text-slate-400 uppercase">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="job in jobs.filter(j => j.video_source?.startsWith('dynamic_merge_'))" :key="job.id">
+                            <tr class="border-b border-slate-50 hover:bg-slate-50">
+                                <td class="py-2 px-2">
+                                    <div class="font-semibold text-slate-900 max-w-[180px] truncate" x-text="job.video_source || '-'"></div>
+                                    <div class="text-[10px] text-slate-400">Dynamic</div>
+                                </td>
+                                <td class="py-2 px-2">
+                                    <div class="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                        <div class="h-full rounded-full transition-all"
+                                             :class="job.progress >= 100 ? 'bg-emerald-500' : job.status === 'failed' ? 'bg-rose-500' : 'bg-blue-500'"
+                                             :style="'width:' + (job.progress || 0) + '%'"></div>
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5" x-text="(job.progress || 0) + '%'"></div>
+                                </td>
+                                <td class="py-2 px-2">
+                                    <div class="flex gap-1">
+                                        <button x-show="job.status === 'failed'" @click="retryJob(job.id)"
+                                                class="px-2 py-1 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100">↻</button>
+                                        <button @click="deleteJob(job.id)"
+                                                class="px-2 py-1 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100">🗑</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {# ── System Output Log ── #}
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-bold text-slate-900">System Output Log</div>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-semibold" x-text="selectedMethod.toUpperCase()"></span>
+            </div>
+            <pre class="text-[10px] text-slate-500 bg-slate-50 rounded-lg p-3 max-h-48 overflow-y-auto font-mono leading-relaxed" x-text="systemLog || 'No logs yet.'"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+function productionPage() {
+    return {
+        selectedMethod: localStorage.getItem('jb_prod_method') || 'ready_video',
+        methods: [
+            {key: 'ready_video', label: 'Final Production', desc: 'Tambah MP3/SFX/Intro dari Seamless Video menjadi Ready Upload'},
+            {key: 'raw_video_auto_seamless', label: 'Static Video', desc: '1 raw video menjadi 1 video loop/seamless'},
+            {key: 'merge_video', label: 'Dynamic Video', desc: 'Gabungkan beberapa raw video menjadi 1 bahan video'},
+        ],
+        media: {video: [], 'video-raw': [], mp3: [], sfx: [], intro: []},
+        jobs: [],
+        runtime: {orchestrator: false, ffmpeg: false},
+        workerLog: '',
+        systemLog: '',
+        activeChannel: null,
+        submitting: false,
+        submitStatus: '',
+        alertMsg: '',
+        alertType: 'ok',
+
+        // FIX BUG 2: Real progress tracking
+        activeJobId: null,
+        activeJobProgress: 0,
+        activeJobStage: '',
+        activeJobFailed: false,
+        _progressTimer: null,
+
+        // New monitors
+        dynamicStatus: {status: 'idle', progress: 0, message: '', current_output: 0, output_count: 0, video_per_merge: 0, elapsed_seconds: 0, output_file: null},
+        seamless: {active: [], active_count: 0, success_count: 0, failed_count: 0, recent: []},
+
+        form: {
+            videos: [],
+            videos_raw: [],
+            pick_random: false,
+            intro_file: '',
+            num_songs: 3,
+            mp3_file: '',
+            sfx_file: '',
+            use_mp3: true,
+            use_sfx: true,
+            mp3_mode: 'shuffle',
+            duration_mode: 'manual',
+            custom_duration: '02:00:00',
+            tail_length: 3,
+            slowmo_percent: 0,
+            dynamic_output_count: 1,
+            merge_count: 10,
+            merge_resolution: '1920x1080',
+            merge_speed: 1.0,
+            merge_transition_enabled: 'true',
+            merge_transition_name: 'fade',
+            merge_transition_duration: 1.0,
+        },
+
+        _refreshTimers: {},
+
+        async init() {
+            this.syncChannel();
+            setInterval(() => this.syncChannel(), 2000);
+        },
+
+        syncChannel() {
+            const chId = localStorage.getItem('jb_ch');
+            if (typeof channels !== 'undefined' && channels.length > 0) {
+                let found = null;
+                if (chId) found = channels.find(c => String(c.id) === String(chId));
+                if (!found) found = channels[0];
+                if (found && (!this.activeChannel || this.activeChannel.id !== found.id)) {
+                    this.activeChannel = found;
+                    this.loadAll();
+                }
+            }
+        },
+
+        async loadAll() {
+            await Promise.all([this.loadMedia(), this.loadJobs(), this.loadRuntime(), this.loadSystemLogs()]);
+            this.startAutoRefresh();
+        },
+
+        startAutoRefresh() {
+            Object.values(this._refreshTimers).forEach(t => clearInterval(t));
+            this._refreshTimers = {};
+
+            // Auto-refresh system logs every 3 seconds (all modes)
+            this._refreshTimers.logs = setInterval(() => this.loadSystemLogs(), 3000);
+
+            if (this.selectedMethod === 'raw_video_auto_seamless') {
+                this.loadSeamlessProgress();
+                this._refreshTimers.seamless = setInterval(() => this.loadSeamlessProgress(), 5000);
+            } else if (this.selectedMethod === 'merge_video') {
+                this.loadDynamicStatus();
+                this._refreshTimers.dynamic = setInterval(() => this.loadDynamicStatus(), 5000);
+            } else {
+                this._refreshTimers.jobs = setInterval(() => this.loadJobs(), 5000);
+            }
+        },
+
+        selectMethod(m) {
+            this.selectedMethod = m;
+            localStorage.setItem('jb_prod_method', m);
+            this.startAutoRefresh();
+            this.loadSystemLogs();
+        },
+
+        async loadMedia() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/production/media/' + this.activeChannel.id);
+                this.media = await r.json();
+            } catch(e) { console.error('loadMedia', e); }
+        },
+
+        async loadJobs() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/production?channel_id=' + this.activeChannel.id);
+                this.jobs = await r.json();
+            } catch(e) { console.error('loadJobs', e); }
+        },
+
+        async loadRuntime() {
+            try {
+                const r = await fetch('/api/production/runtime');
+                const d = await r.json();
+                this.runtime = {orchestrator: d.orchestrator, ffmpeg: d.ffmpeg};
+            } catch(e) {}
+        },
+
+        async loadSystemLogs() {
+            if (!this.activeChannel) return;
+            try {
+                const mode = this.selectedMethod === 'ready_video' ? 'final' : this.selectedMethod === 'raw_video_auto_seamless' ? 'static' : 'dynamic';
+                const r = await fetch('/api/production/system-logs/' + mode + '?channel_id=' + this.activeChannel.id);
+                const d = await r.json();
+                this.systemLog = (d.lines || []).join('\n');
+                // Update progress bar if available
+                if (d.progress !== undefined) {
+                    this.activeJobProgress = d.progress;
+                    this.activeJobStage = d.status || '';
+                }
+            } catch(e) {}
+        },
+
+        async loadDynamicStatus() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/production/dynamic-status/' + this.activeChannel.id);
+                this.dynamicStatus = await r.json();
+            } catch(e) {}
+        },
+
+        async loadSeamlessProgress() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/production/seamless-progress/' + this.activeChannel.id);
+                this.seamless = await r.json();
+            } catch(e) {}
+        },
+
+        // FIX BUG 2: Poll job progress after submission
+        startProgressPolling(jobId) {
+            this.activeJobId = jobId;
+            this.activeJobProgress = 0;
+            this.activeJobStage = 'Menunggu worker...';
+            this.activeJobFailed = false;
+
+            if (this._progressTimer) clearInterval(this._progressTimer);
+
+            this._progressTimer = setInterval(async () => {
+                try {
+                    const r = await fetch('/api/production/' + jobId);
+                    if (!r.ok) return;
+                    const job = await r.json();
+                    this.activeJobProgress = job.progress || 0;
+                    this.activeJobStage = job.process_status || job.status || '';
+
+                    if (job.status === 'done' || job.final_status === 'done') {
+                        this.activeJobProgress = 100;
+                        this.activeJobStage = 'Selesai!';
+                        this.submitting = false;
+                        clearInterval(this._progressTimer);
+                        this.loadJobs();
+                        this.loadSystemLogs();
+                    } else if (job.status === 'failed' || job.final_status === 'failed') {
+                        this.activeJobFailed = true;
+                        this.activeJobStage = job.error_message || 'Gagal';
+                        this.submitting = false;
+                        clearInterval(this._progressTimer);
+                        this.loadJobs();
+                    }
+                } catch(e) {}
+            }, 2000);
+        },
+
+        async submitProduction(startAll) {
+            if (!this.activeChannel) {
+                this.showAlert('bad', 'Pilih channel aktif dulu.');
+                return;
+            }
+
+            this.submitting = true;
+            this.submitStatus = 'Mengirim job ke worker...';
+
+            const body = {
+                channel_id: this.activeChannel.id,
+                production_method: this.selectedMethod,
+                start_all: startAll,
+            };
+
+            if (this.selectedMethod === 'ready_video') {
+                body.video_source = this.form.videos.length === 1 ? this.form.videos[0] : null;
+                body.num_songs = this.form.num_songs;
+                body.no_mp3 = !this.form.use_mp3;
+                body.no_sfx = !this.form.use_sfx;
+                // FIX BUG 4: Send mp3_mode to API
+                body.mp3_mode = this.form.mp3_mode;
+                body.mp3_file = this.form.mp3_mode === 'single' ? (this.form.mp3_file || null) : null;
+                body.sfx_file = this.form.sfx_file || null;
+                body.intro_file = this.form.intro_file || null;
+                body.duration_mode = this.form.duration_mode;
+                body.custom_duration = this.form.duration_mode === 'manual' ? this.form.custom_duration : null;
+                if (this.form.pick_random) body.video_source = null;
+            } else if (this.selectedMethod === 'raw_video_auto_seamless') {
+                if (this.form.videos_raw.length > 0) {
+                    body.video_source = this.form.videos_raw[0];
+                }
+            } else if (this.selectedMethod === 'merge_video') {
+                body.dynamic_output_count = this.form.dynamic_output_count;
+                body.merge_count = this.form.merge_count;
+                body.merge_resolution = this.form.merge_resolution;
+                body.merge_speed = this.form.merge_speed;
+                body.merge_transition_enabled = this.form.merge_transition_enabled === 'true';
+                body.merge_transition_name = this.form.merge_transition_name;
+                body.merge_transition_duration = this.form.merge_transition_duration;
+            }
+
+            try {
+                const r = await fetch('/api/production', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+                const d = await r.json();
+                if (r.ok) {
+                    this.showAlert('ok', d.message || 'Job created!');
+                    // FIX BUG 2: Start progress polling for the created job
+                    if (d.job_id) {
+                        this.submitStatus = 'Job #' + d.job_id + ' diproses worker...';
+                        this.startProgressPolling(d.job_id);
+                    } else {
+                        this.submitting = false;
+                    }
+                    this.loadJobs();
+                    this.loadSystemLogs();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal membuat job.');
+                    this.submitting = false;
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Error: ' + e.message);
+                this.submitting = false;
+            }
+        },
+
+        async sendToUploadReady(jobId) {
+            try {
+                const r = await fetch('/api/production/' + jobId + '/send-upload-ready', {method: 'POST'});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', d.message);
+                    this.loadJobs();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal');
+                }
+            } catch(e) { this.showAlert('bad', 'Error: ' + e.message); }
+        },
+
+        previewJob(jobId) {
+            window.open('/api/production/preview/' + jobId, '_blank');
+        },
+
+        async deleteJob(jobId) {
+            if (!confirm('Hapus job ini?')) return;
+            try {
+                await fetch('/api/production/' + jobId, {method: 'DELETE'});
+                this.loadJobs();
+            } catch(e) {}
+        },
+
+        // FIX BUG 8: Retry failed job
+        async retryJob(jobId) {
+            if (!confirm('Retry job ini?')) return;
+            try {
+                const r = await fetch('/api/production/' + jobId + '/retry', {method: 'POST'});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', 'Job di-retry, worker akan pick up.');
+                    this.startProgressPolling(jobId);
+                    this.loadJobs();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal retry');
+                }
+            } catch(e) { this.showAlert('bad', 'Error: ' + e.message); }
+        },
+
+        async deleteAllJobs() {
+            if (!confirm('Hapus semua production job?')) return;
+            try {
+                await fetch('/api/production/batch/final?channel_id=' + this.activeChannel.id, {method: 'DELETE'});
+                this.loadJobs();
+            } catch(e) {}
+        },
+
+        showAlert(type, msg) {
+            this.alertType = type;
+            this.alertMsg = msg;
+            setTimeout(() => { this.alertMsg = ''; }, 5000);
+        },
+
+        // Helpers
+        formatSize(bytes) {
+            if (!bytes) return '0 MB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        },
+
+        formatElapsed(seconds) {
+            if (!seconds) return '00:00';
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        },
+
+        calcEta(job) {
+            if (!job.progress || job.progress <= 0 || job.progress >= 100) return '-';
+            if (!job.created_at) return '-';
+            const elapsed = Math.max(1, (Date.now() - new Date(job.created_at).getTime()) / 1000);
+            const totalEstimate = (elapsed / job.progress) * 100;
+            const remaining = Math.max(0, Math.round(totalEstimate - elapsed));
+            if (remaining <= 0) return 'segera';
+            const mins = Math.floor(remaining / 60);
+            const secs = remaining % 60;
+            return (mins > 0 ? mins + 'm ' : '') + secs + 's';
+        },
+    };
+}
+</script>
+{% endblock %}

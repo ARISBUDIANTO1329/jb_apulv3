@@ -1,0 +1,23 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #0a0e18;
+  color: #e0e8f0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fix dropdown option visibility */
+select option {
+  background: #0e1424;
+  color: #e0e8f0;
+  padding: 8px 12px;
+}
+
+select {
+  color-scheme: dark;
+}

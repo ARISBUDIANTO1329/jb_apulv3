@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+
+{% block title %}✂️ Shorts Generator{% endblock %}
+
+{% block content %}
+<div x-data="shortsPage()" x-init="init()">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-bold">✂️ Shorts Generator</h1>
+        <div class="flex gap-2">
+            <button @click="deleteAllJobs()" class="btn btn-sm btn-danger" x-show="jobs.length > 0">🗑️ Hapus Semua</button>
+            <button @click="showCreate = true" class="btn btn-primary">+ Buat Shorts Baru</button>
+        </div>
+    </div>
+
+
+    <!-- Create Modal -->
+    <template x-if="showCreate">
+        <div class="modal" @click.self="showCreate = false">
+            <div class="modal-content" style="max-width: 600px;">
+                <h3 class="text-lg font-bold mb-4">✂️ Buat Shorts dari Video Long</h3>
+
+                <div class="space-y-4">
+                    <!-- Channel -->
+                    <div class="form-group">
+                        <label class="form-label">Channel</label>
+                        <select x-model="form.channel_id" @change="loadUploads()" class="form-input">
+                            <option value="">Pilih channel...</option>
+                            <template x-for="ch in channels" :key="ch.id">
+                                <option :value="ch.id" x-text="ch.name"></option>
+                            </template>
+                        </select>
+                    </div>
+
+                    <!-- Video Long -->
+                    <div class="form-group">
+                        <label class="form-label">Video Long (yang sudah di-upload)</label>
+                        <select x-model="form.long_upload_id" @change="fillDescription()" class="form-input">
+                            <option value="">Pilih video...</option>
+                            <template x-for="u in uploads" :key="u.id">
+                                <option :value="u.id" x-text="(u.title || ('Upload #' + u.id)) + (u.file_size_mb ? ' (' + u.file_size_mb + ' MB)' : '')"></option>
+                            </template>
+                        </select>
+                        <p class="text-xs text-slate-500 mt-1">Hanya video yang sudah selesai di-upload ke YouTube</p>
+                    </div>
+
+                    <!-- Settings -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="form-group">
+                            <label class="form-label">Jumlah Short</label>
+                            <select x-model="form.short_count" class="form-input">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Durasi (detik)</label>
+                            <select x-model="form.short_duration" class="form-input">
+                                <option value="30">30 detik</option>
+                                <option value="45">45 detik</option>
+                                <option value="60">60 detik</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Segment Mode -->
+                    <div class="form-group">
+                        <label class="form-label">Segment Mode</label>
+                        <div class="flex gap-4">
+                            <label class="flex items-center gap-2">
+                                <input type="radio" x-model="form.segment_mode" value="auto">
+                                <span>Auto (bagi rata)</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" x-model="form.segment_mode" value="manual">
+                                <span>Manual (timestamp)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Schedule -->
+                    <div class="form-group">
+                        <label class="form-label">Jadwal Upload (WIB)</label>
+                        <div class="grid grid-cols-3 gap-4">
+                            <div>
+                                <label class="text-xs text-slate-500">Short 1</label>
+                                <input type="time" x-model="form.upload_time_1" class="form-input">
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-500">Short 2</label>
+                                <input type="time" x-model="form.upload_time_2" class="form-input">
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-500">Short 3</label>
+                                <input type="time" x-model="form.upload_time_3" class="form-input">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Description Template -->
+                    <div class="form-group">
+                        <label class="form-label">Template Deskripsi</label>
+                        <textarea x-model="form.description_template" class="form-input" rows="4"
+                            placeholder="Watch the full version here:&#10;{LONG_URL}&#10;&#10;#relaxation #music #sleep"></textarea>
+                        <p class="text-xs text-slate-500 mt-1">Gunakan <code>{LONG_URL}</code} untuk link video long</p>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-6">
+                    <button @click="showCreate = false" class="btn">Batal</button>
+                    <button @click="createJob()" :disabled="creating" class="btn btn-primary">
+                        <span x-show="!creating">✂️ Generate & Schedule</span>
+                        <span x-show="creating">⏳ Processing...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Jobs List -->
+    <div class="space-y-4">
+        <template x-if="jobs.length === 0">
+            <div class="card text-center py-12 text-slate-500">
+                <p class="text-lg mb-2">Belum ada shorts job</p>
+                <p class="text-sm">Klik "Buat Shorts Baru" untuk memulai</p>
+            </div>
+        </template>
+
+        <template x-for="job in jobs" :key="job.id">
+            <div class="card">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="font-bold text-lg" x-text="job.long_title || 'Shorts #' + job.id"></h3>
+                        <p class="text-sm text-slate-500">
+                            <span x-text="job.channel_name"></span> •
+                            <span x-text="formatDate(job.created_at)"></span>
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="badge" :class="statusBadge(job.status)" x-text="job.status"></span>
+                        <button @click="deleteJob(job.id)" class="btn btn-sm btn-danger">🗑️</button>
+                    </div>
+                </div>
+
+                <!-- Long Video Link -->
+                <div class="mb-4 p-3 rounded-lg" style="background: rgba(255,255,255,.03);">
+                    <div class="text-xs text-slate-500 mb-1">Video Long</div>
+                    <a :href="job.long_youtube_url" target="_blank" class="text-blue-400 text-sm" x-text="job.long_youtube_url"></a>
+                </div>
+
+                <!-- Shorts Items -->
+                <div class="space-y-2">
+                    <template x-for="item in job.items" :key="item.id">
+                        <div class="flex items-center justify-between p-3 rounded-lg" style="background: rgba(255,255,255,.02);">
+                            <div class="flex items-center gap-3">
+                                <span class="text-sm font-mono text-slate-500" x-text="'#' + item.short_number"></span>
+                                <div>
+                                    <p class="text-sm font-medium" x-text="item.title"></p>
+                                    <p class="text-xs text-slate-500">
+                                        <span x-show="item.upload_time">Upload: <span x-text="item.upload_time"></span> WIB</span>
+                                        <span x-show="item.start_second !== null"> • <span x-text="item.start_second + 's - ' + item.end_second + 's'"></span></span>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="badge" :class="statusBadge(item.status)" x-text="item.status"></span>
+                                <a x-show="item.youtube_id" :href="'https://youtube.com/watch?v=' + item.youtube_id" target="_blank" class="text-blue-400 text-xs">📺</a>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Error -->
+                <template x-if="job.error_message">
+                    <div class="mt-3 p-3 rounded-lg text-sm text-red-400" style="background: rgba(239,68,68,.05);">
+                        ⚠️ <span x-text="job.error_message"></span>
+                    </div>
+                </template>
+
+                <!-- Actions -->
+                <div class="flex justify-end gap-2 mt-4">
+                    <button x-show="job.status === 'failed'" @click="retryJob(job.id)" class="btn btn-sm">🔄 Retry</button>
+                    <a :href="'/shorts/' + job.id" class="btn btn-sm">📊 Detail</a>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function shortsPage() {
+    return {
+        channels: [],
+        uploads: [],
+        jobs: [],
+        showCreate: false,
+        creating: false,
+        form: {
+            channel_id: '',
+            long_upload_id: '',
+            short_count: 3,
+            short_duration: 60,
+            segment_mode: 'auto',
+            description_template: 'Watch the full version here:\n{LONG_URL}\n\n#relaxation #music #sleep #meditation #ambient',
+            upload_time_1: '12:00',
+            upload_time_2: '16:00',
+            upload_time_3: '20:00',
+        },
+
+        async init() {
+            await this.loadChannels();
+            await this.loadJobs();
+            // Auto-refresh every 15 seconds
+            setInterval(() => this.loadJobs(), 15000);
+        },
+
+        async loadChannels() {
+            try {
+                const r = await fetch('/api/channels');
+                this.channels = await r.json();
+            } catch (e) {
+                console.error('Failed to load channels:', e);
+            }
+        },
+
+        async loadUploads() {
+            if (!this.form.channel_id) {
+                this.uploads = [];
+                return;
+            }
+            try {
+                const r = await fetch(`/api/shorts/completed-uploads?channel_id=${this.form.channel_id}`);
+                this.uploads = await r.json();
+            } catch (e) {
+                console.error('Failed to load uploads:', e);
+            }
+        },
+
+        fillDescription() {
+            const selectedId = parseInt(this.form.long_upload_id);
+            if (!selectedId) return;
+            
+            const selected = this.uploads.find(u => u.id === selectedId);
+            if (!selected || !selected.youtube_url) return;
+            
+            // Auto-fill description template with actual URL
+            this.form.description_template = `Watch the full version here:
+${selected.youtube_url}
+
+#relaxation #music #sleep #meditation #ambient`;
+        },
+
+        async loadJobs() {
+            try {
+                const r = await fetch('/api/shorts');
+                this.jobs = await r.json();
+            } catch (e) {
+                console.error('Failed to load jobs:', e);
+            }
+        },
+
+        async createJob() {
+            if (!this.form.channel_id || !this.form.long_upload_id) {
+                alert('Pilih channel dan video long dulu');
+                return;
+            }
+            this.creating = true;
+            try {
+                const r = await fetch('/api/shorts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        channel_id: parseInt(this.form.channel_id),
+                        long_upload_id: parseInt(this.form.long_upload_id),
+                        short_count: parseInt(this.form.short_count),
+                        short_duration: parseInt(this.form.short_duration),
+                        segment_mode: this.form.segment_mode,
+                        description_template: this.form.description_template,
+                        upload_time_1: this.form.upload_time_1,
+                        upload_time_2: this.form.upload_time_2,
+                        upload_time_3: this.form.upload_time_3,
+                    }),
+                });
+                const data = await r.json();
+                if (data.success) {
+                    this.showCreate = false;
+                    await this.loadJobs();
+                    alert('✅ Shorts job created!');
+                } else {
+                    alert(data.detail || 'Gagal membuat shorts job');
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+            this.creating = false;
+        },
+
+        async deleteJob(jobId) {
+            if (!confirm('Hapus shorts job ini?')) return;
+            try {
+                await fetch(`/api/shorts/${jobId}`, { method: 'DELETE' });
+                await this.loadJobs();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        },
+
+        async deleteAllJobs() {
+            if (!confirm("Hapus SEMUA shorts job? Ini tidak bisa dibatalkan.")) return;
+            try {
+                const r = await fetch("/api/shorts/all", { method: "DELETE" });
+                const d = await r.json();
+                if (d.success) {
+                    alert("Berhasil hapus " + d.deleted + " job");
+                }
+                await this.loadJobs();
+            } catch (e) {
+                alert("Error: " + e.message);
+            }
+        },
+
+        async retryJob(jobId) {
+            try {
+                const r = await fetch(`/api/shorts/${jobId}/retry`, { method: 'POST' });
+                const data = await r.json();
+                if (data.success) {
+                    alert(`✅ ${data.retry_count} item(s) di-retry`);
+                    await this.loadJobs();
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        },
+
+        formatDate(iso) {
+            if (!iso) return '-';
+            return new Date(iso).toLocaleDateString('id-ID', {
+                day: 'numeric', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+        },
+
+        statusBadge(status) {
+            const map = {
+                'created': 'badge-warning',
+                'pending': 'badge-warning',
+                'generating': 'badge-info',
+                'ready': 'badge-info',
+                'uploading': 'badge-info',
+                'uploaded': 'badge-success',
+                'completed': 'badge-success',
+                'failed': 'badge-danger',
+            };
+            return map[status] || 'badge-default';
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,481 @@
+{% extends "base.html" %}
+{% block title %}Pipeline{% endblock %}
+{% block content %}
+<div x-data="pipelinePage()" x-init="init()" class="space-y-5">
+
+    {# Header #}
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900">Automation Pipeline</h1>
+        <p class="text-sm text-slate-500 mt-1">Otomasi produksi upload dan livestream terjadwal</p>
+    </div>
+
+    <div x-show="alertMsg" x-cloak
+         class="p-4 rounded-xl text-sm font-semibold"
+         :class="alertType === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'"
+         x-text="alertMsg"></div>
+
+    {# Channel Info #}
+    <div class="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3">
+        <div class="text-[10px] font-bold text-slate-400 uppercase">Channel:</div>
+        <div class="text-sm font-bold text-slate-900" x-text="activeChannel?.name || 'Belum dipilih'"></div>
+        <div class="ml-auto flex gap-2">
+            <button @click="loadPipeline()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻ Refresh</button>
+            <button x-show="!pipeline" @click="createPipeline()" class="text-xs px-3 py-1 rounded bg-blue-50 text-blue-600 font-semibold hover:bg-blue-100">+ Buat Pipeline</button>
+        </div>
+    </div>
+
+    <div x-show="!pipeline" class="py-16 text-center border-2 border-dashed border-slate-200 rounded-xl">
+        <div class="text-4xl mb-3">⚡</div>
+        <div class="text-sm text-slate-500">Belum ada pipeline untuk channel ini.</div>
+        <button @click="createPipeline()" class="mt-3 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800">Buat Pipeline</button>
+    </div>
+
+    <div x-show="pipeline" class="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-5">
+
+        {# ── LEFT: Config ── #}
+        <div class="space-y-5">
+
+            {# Pipeline Status #}
+            <div class="bg-white rounded-xl border border-slate-200 p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <div class="text-sm font-bold text-slate-900">Pipeline #<span x-text="pipeline?.id"></span></div>
+                        <div class="text-xs text-slate-500" x-text="'Mode: ' + (pipeline?.mode || '-')"></div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                              :class="pipeline?.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                              x-text="pipeline?.is_active ? 'ACTIVE' : 'PAUSED'"></span>
+                        <button @click="togglePipeline()"
+                                class="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                                :class="pipeline?.is_active ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                                x-text="pipeline?.is_active ? 'Pause' : 'Resume'"></button>
+                    </div>
+                </div>
+
+                {# Tabs #}
+                <div class="flex gap-1 p-1 bg-slate-100 rounded-lg mb-4">
+                    <button @click="activeTab = 'upload'" class="flex-1 px-3 py-2 rounded-md text-xs font-bold transition-all"
+                            :class="activeTab === 'upload' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'">📤 Upload</button>
+                    <button @click="activeTab = 'livestream'" class="flex-1 px-3 py-2 rounded-md text-xs font-bold transition-all"
+                            :class="activeTab === 'livestream' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'">🔴 Livestream</button>
+                    <button @click="activeTab = 'shorts'" class="flex-1 px-3 py-2 rounded-md text-xs font-bold transition-all"
+                            :class="activeTab === 'shorts' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'">📱 Shorts</button>
+                </div>
+
+                {# Upload Config #}
+                <div x-show="activeTab === 'upload'" class="space-y-4">
+                    <label class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-slate-700">Upload Enabled</span>
+                        <button @click="toggleFeature('upload')"
+                                class="w-10 h-5 rounded-full flex items-center transition-all"
+                                :class="pipeline?.upload_enabled ? 'bg-emerald-500 justify-end' : 'bg-slate-300 justify-start'">
+                            <span class="w-4 h-4 rounded-full bg-white mx-0.5 shadow"></span>
+                        </button>
+                    </label>
+
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Mode</label>
+                        <select x-model="uploadConfig.mode" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                            <option value="final">Final (Ready Video)</option>
+                            <option value="static">Static (Raw + Seamless)</option>
+                            <option value="dynamic">Dynamic (Merge)</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Upload per Run</label>
+                            <input type="number" x-model.number="uploadConfig.upload_count" min="1" max="50"
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Jadwal (WIB)</label>
+                            <input type="time" x-model="uploadConfig.scheduler_time"
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Jumlah MP3</label>
+                            <input type="number" x-model.number="uploadConfig.num_songs" min="1" max="10"
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Durasi</label>
+                            <select x-model="uploadConfig.duration_mode" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                                <option value="mp3">Ikut MP3</option>
+                                <option value="manual">Manual</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button @click="saveUploadConfig()" class="w-full px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800">Simpan Config Upload</button>
+                </div>
+
+                {# Livestream Config #}
+                <div x-show="activeTab === 'livestream'" class="space-y-4">
+                    <label class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-slate-700">Livestream Enabled</span>
+                        <button @click="toggleFeature('live')"
+                                class="w-10 h-5 rounded-full flex items-center transition-all"
+                                :class="pipeline?.live_enabled ? 'bg-emerald-500 justify-end' : 'bg-slate-300 justify-start'">
+                            <span class="w-4 h-4 rounded-full bg-white mx-0.5 shadow"></span>
+                        </button>
+                    </label>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Durasi (jam)</label>
+                            <input type="number" x-model.number="liveConfig.live_duration_hours" min="1" max="72"
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Kualitas</label>
+                            <select x-model="liveConfig.live_quality" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                                <option value="low">Low (720p)</option>
+                                <option value="high">High (1080p)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Live per Hari</label>
+                            <input type="number" x-model.number="liveConfig.live_count" min="1" max="10"
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        </div>
+                        <div class="flex items-end gap-4">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="liveConfig.live_use_mp3" class="rounded border-slate-300">
+                                <span class="text-sm text-slate-700">MP3</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="liveConfig.live_use_sfx" class="rounded border-slate-300">
+                                <span class="text-sm text-slate-700">SFX</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button @click="saveLivestreamConfig()" class="w-full px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800">Simpan Config Live</button>
+                </div>
+
+                {# Shorts Config #}
+                <div x-show="activeTab === 'shorts'" class="space-y-4">
+                    <label class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-slate-700">Shorts Enabled</span>
+                        <button @click="toggleFeature('shorts')"
+                                class="w-10 h-5 rounded-full flex items-center transition-all"
+                                :class="pipeline?.shorts_enabled ? 'bg-emerald-500 justify-end' : 'bg-slate-300 justify-start'">
+                            <span class="w-4 h-4 rounded-full bg-white mx-0.5 shadow"></span>
+                        </button>
+                    </label>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Shorts per Hari</label>
+                            <input type="number" x-model.number="shortsConfig.shorts_count" min="1" max="20"
+                                   class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Mode</label>
+                            <select x-model="shortsConfig.shorts_mode" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 outline-none">
+                                <option value="dynamic">Dynamic (Merge)</option>
+                                <option value="static">Static (Clip)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button @click="saveShortsConfig()" class="w-full px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800">Simpan Config Shorts</button>
+                </div>
+            </div>
+
+            {# Actions #}
+            <div class="flex gap-3">
+                <button @click="runPipeline()" :disabled="running"
+                        class="flex-1 px-4 py-3 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-50">
+                    <span x-show="!running">⚡ Run Now</span>
+                    <span x-show="running">Running...</span>
+                </button>
+                <button @click="deletePipeline()"
+                        class="px-4 py-3 rounded-lg bg-rose-50 text-rose-700 text-sm font-bold hover:bg-rose-100">🗑 Delete</button>
+            </div>
+        </div>
+
+        {# ── RIGHT: Active Run & History ── #}
+        <div class="space-y-5">
+
+            {# Active Run #}
+            <div x-show="activeRun" class="bg-white rounded-xl border border-slate-200 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-bold text-slate-900">🔴 Active Run</div>
+                    <button @click="cancelRun()" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-700 font-semibold hover:bg-rose-100">Cancel</button>
+                </div>
+                <div class="space-y-2">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-500">Status</span>
+                        <span class="font-semibold" x-text="activeRun?.status"></span>
+                    </div>
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-500">Stage</span>
+                        <span class="font-semibold" x-text="activeRun?.current_stage"></span>
+                    </div>
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-500">Progress</span>
+                        <span class="font-semibold" x-text="(activeRun?.progress || 0) + '%'"></span>
+                    </div>
+                    <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full bg-blue-500 transition-all" :style="'width:' + (activeRun?.progress || 0) + '%'"></div>
+                    </div>
+                </div>
+            </div>
+
+            {# Run History #}
+            <div class="bg-white rounded-xl border border-slate-200 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-bold text-slate-900">Run History</div>
+                    <button @click="loadRuns()" class="text-xs px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50">↻</button>
+                </div>
+
+                <div x-show="runs.length === 0" class="py-8 text-center text-sm text-slate-400">
+                    Belum ada run
+                </div>
+
+                <div x-show="runs.length > 0" class="space-y-2 max-h-64 overflow-y-auto">
+                    <template x-for="run in runs" :key="run.id">
+                        <div class="p-3 rounded-lg border border-slate-100 hover:bg-slate-50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                                          :class="{
+                                              'bg-emerald-50 text-emerald-700': run.status === 'completed',
+                                              'bg-blue-50 text-blue-700': run.status === 'pending',
+                                              'bg-amber-50 text-amber-700': run.status === 'producing' || run.status === 'uploading',
+                                              'bg-rose-50 text-rose-700': run.status === 'failed',
+                                              'bg-slate-100 text-slate-500': run.status === 'cancelled',
+                                          }" x-text="run.status"></span>
+                                    <span class="text-[10px] text-slate-400 ml-2" x-text="'#' + run.id"></span>
+                                </div>
+                                <div class="text-[10px] text-slate-400" x-text="formatDate(run.created_at)"></div>
+                            </div>
+                            <div x-show="run.error_message" class="text-[10px] text-rose-500 mt-1" x-text="run.error_message"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function pipelinePage() {
+    return {
+        activeChannel: null,
+        pipeline: null,
+        activeRun: null,
+        runs: [],
+        activeTab: 'upload',
+        running: false,
+        alertMsg: '',
+        alertType: 'ok',
+
+        uploadConfig: {mode: 'final', upload_count: 3, scheduler_time: '09:00', num_songs: 3, duration_mode: 'mp3'},
+        liveConfig: {live_duration_hours: 12, live_quality: 'low', live_count: 1, live_use_mp3: true, live_use_sfx: true},
+        shortsConfig: {shorts_count: 3, shorts_mode: 'dynamic'},
+
+        async init() {
+            this.syncChannel();
+            setInterval(() => this.syncChannel(), 2000);
+        },
+
+        syncChannel() {
+            const chId = localStorage.getItem('jb_ch');
+            if (typeof channels !== 'undefined' && channels.length > 0) {
+                let found = null;
+                if (chId) found = channels.find(c => String(c.id) === String(chId));
+                if (!found) found = channels[0];
+                if (found && (!this.activeChannel || this.activeChannel.id !== found.id)) {
+                    this.activeChannel = found;
+                    this.loadPipeline();
+                }
+            }
+        },
+
+        async loadPipeline() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/pipeline');
+                const all = await r.json();
+                this.pipeline = all.find(p => p.channel_id === this.activeChannel.id) || null;
+                if (this.pipeline) {
+                    this.syncConfig();
+                    await this.loadRuns();
+                    await this.loadActiveRun();
+                }
+            } catch(e) {}
+        },
+
+        syncConfig() {
+            if (!this.pipeline) return;
+            this.uploadConfig = {
+                mode: this.pipeline.mode || 'final',
+                upload_count: this.pipeline.upload_count || 3,
+                scheduler_time: this.pipeline.scheduler_time || '09:00',
+                num_songs: 3, duration_mode: 'mp3',
+                ...(this.pipeline.config_json?.upload_production || {}),
+            };
+            this.liveConfig = {
+                live_duration_hours: this.pipeline.live_duration_hours || 12,
+                live_quality: this.pipeline.live_quality || 'low',
+                live_count: this.pipeline.live_count || 1,
+                live_use_mp3: this.pipeline.live_use_mp3 ?? true,
+                live_use_sfx: this.pipeline.live_use_sfx ?? true,
+            };
+            this.shortsConfig = {
+                shorts_count: this.pipeline.shorts_count || 3,
+                shorts_mode: 'dynamic',
+                ...(this.pipeline.config_json?.shorts_production || {}),
+            };
+        },
+
+        async createPipeline() {
+            if (!this.activeChannel) return;
+            try {
+                const r = await fetch('/api/pipeline', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({channel_id: this.activeChannel.id}),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', 'Pipeline dibuat');
+                    this.loadPipeline();
+                }
+            } catch(e) {}
+        },
+
+        async togglePipeline() {
+            if (!this.pipeline) return;
+            try {
+                await fetch('/api/pipeline/' + this.pipeline.id + '/toggle', {method: 'POST'});
+                this.loadPipeline();
+            } catch(e) {}
+        },
+
+        async toggleFeature(feature) {
+            if (!this.pipeline) return;
+            try {
+                await fetch('/api/pipeline/' + this.pipeline.id + '/toggle-feature?feature=' + feature, {method: 'POST'});
+                this.loadPipeline();
+            } catch(e) {}
+        },
+
+        async saveUploadConfig() {
+            if (!this.pipeline) return;
+            try {
+                await fetch('/api/pipeline/' + this.pipeline.id + '/save-upload', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.uploadConfig),
+                });
+                this.showAlert('ok', 'Config upload tersimpan');
+            } catch(e) {}
+        },
+
+        async saveLivestreamConfig() {
+            if (!this.pipeline) return;
+            try {
+                await fetch('/api/pipeline/' + this.pipeline.id + '/save-livestream', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.liveConfig),
+                });
+                this.showAlert('ok', 'Config livestream tersimpan');
+            } catch(e) {}
+        },
+
+        async saveShortsConfig() {
+            if (!this.pipeline) return;
+            try {
+                await fetch('/api/pipeline/' + this.pipeline.id + '/save-shorts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.shortsConfig),
+                });
+                this.showAlert('ok', 'Config shorts tersimpan');
+            } catch(e) {}
+        },
+
+        async runPipeline() {
+            if (!this.pipeline) return;
+            this.running = true;
+            try {
+                const r = await fetch('/api/pipeline/' + this.pipeline.id + '/run', {method: 'POST'});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', d.message);
+                    this.loadActiveRun();
+                } else {
+                    this.showAlert('bad', d.detail || 'Gagal run pipeline');
+                }
+            } catch(e) {
+                this.showAlert('bad', 'Error: ' + e.message);
+            }
+            this.running = false;
+        },
+
+        async loadActiveRun() {
+            if (!this.pipeline) return;
+            try {
+                const r = await fetch('/api/pipeline/' + this.pipeline.id + '/active-run');
+                const d = await r.json();
+                this.activeRun = d.active ? d : null;
+            } catch(e) {}
+        },
+
+        async loadRuns() {
+            if (!this.pipeline) return;
+            try {
+                const r = await fetch('/api/pipeline/' + this.pipeline.id + '/runs');
+                this.runs = await r.json();
+            } catch(e) {}
+        },
+
+        async cancelRun() {
+            if (!this.activeRun) return;
+            if (!confirm('Cancel run ini?')) return;
+            try {
+                await fetch('/api/pipeline/run/' + this.activeRun.run_id + '/cancel', {method: 'POST'});
+                this.activeRun = null;
+                this.loadRuns();
+            } catch(e) {}
+        },
+
+        async deletePipeline() {
+            if (!this.pipeline) return;
+            if (!confirm('Hapus pipeline ini?')) return;
+            try {
+                await fetch('/api/pipeline/' + this.pipeline.id, {method: 'DELETE'});
+                this.pipeline = null;
+                this.runs = [];
+                this.activeRun = null;
+                this.showAlert('ok', 'Pipeline dihapus');
+            } catch(e) {}
+        },
+
+        formatDate(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return d.toLocaleDateString('id-ID', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+        },
+
+        showAlert(type, msg) {
+            this.alertType = type;
+            this.alertMsg = msg;
+            setTimeout(() => { this.alertMsg = ''; }, 5000);
+        },
+    };
+}
+</script>
+{% endblock %}

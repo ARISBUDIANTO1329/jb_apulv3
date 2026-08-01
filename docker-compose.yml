@@ -15,7 +15,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: no
+    restart: unless-stopped
 
   # Redis (cache + queue + pub/sub)
   redis:
@@ -29,7 +29,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: no
+    restart: unless-stopped
 
   # FastAPI Backend (serves API + HTML)
   backend:
@@ -54,7 +54,7 @@ services:
       redis:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    restart: no
+    restart: unless-stopped
 
   # Production Worker
   worker-production:
@@ -72,7 +72,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: no
+    restart: unless-stopped
 
   # Livestream Worker
   worker-livestream:
@@ -94,7 +94,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: no
+    restart: unless-stopped
 
   # Upload Worker (YouTube Upload)
   worker-upload:
@@ -114,7 +114,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: no
+    restart: unless-stopped
 
   # Shorts Worker
   worker-shorts:
@@ -134,7 +134,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: no
+    restart: unless-stopped
 
 volumes:
   postgres_data:

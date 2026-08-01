@@ -58,7 +58,7 @@ reconnect_counts = {}    # job_id -> int  (was missing before!)
 
 # Reconciliation counter
 _reconcile_counter = 0
-RECONCILE_EVERY = 20  # every ~60s (20 * 3s poll)
+RECONCILE_EVERY = 100  # every ~5min (100 * 3s poll)
 MAX_RECONNECTS = 10  # Max reconnection attempts before giving up (increased for 12h streams)
 RECONNECT_DELAY = 5  # Seconds to wait before reconnecting
 
@@ -1000,7 +1000,7 @@ def build_ffmpeg_command(job, video_path, stream_key):
         "-map", "[vout]",
         "-map", "[aout]",
         "-c:v", "libx264",
-        "-preset", "ultrafast",
+        "-preset", "veryfast",
         "-b:v", quality["bitrate"],
         "-maxrate", quality["maxrate"],
         "-bufsize", quality["bufsize"],

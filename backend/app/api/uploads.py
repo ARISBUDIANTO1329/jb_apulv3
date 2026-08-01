@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app.db.session import get_db
 from app.models.upload import UploadBatch, UploadBatchItem
@@ -417,10 +417,12 @@ async def preview_schedule(data: SchedulePreviewRequest, db: AsyncSession = Depe
         title = title_pool.title if title_pool else ""
 
         # Pick description
-        description = desc_pools[0].description if desc_pools else ""
+        desc_pool = desc_pools[i] if i < len(desc_pools) else None
+        description = desc_pool.description if desc_pool else ""
 
         # Pick tags
-        tags = tags_pools[0].tags if tags_pools else ""
+        tag_pool = tags_pools[i] if i < len(tags_pools) else None
+        tags = tag_pool.tags if tag_pool else ""
 
         # Check file exists
         file_path = item.file_path or ""
@@ -550,9 +552,18 @@ async def delete_item(item_id: int, db: AsyncSession = Depends(get_db)):
 # ── Helpers ──────────────────────────────────────────────────────
 
 
-async def _get_from_pool(db: AsyncSession, model, channel_id: int) -> Optional[str]:
+async def _get_from_pool(db: AsyncSession, model, channel_id: int, field_name: str = None) -> Optional[str]:
     """Get an unused item from a metadata pool."""
-    cutoff = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    if not field_name:
+        FIELD_MAP = {
+            'MetadataTitlePool': 'title',
+            'MetadataDescriptionPool': 'description',
+            'MetadataTagPool': 'tags',
+            'MetadataPlaylistPool': 'playlist_name',
+        }
+        field_name = FIELD_MAP.get(model.__name__, 'title')
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=40)
 
     result = await db.execute(
         select(model)
@@ -564,5 +575,5 @@ async def _get_from_pool(db: AsyncSession, model, channel_id: int) -> Optional[s
     item = result.scalar_one_or_none()
     if item:
         item.used_at = datetime.now(timezone.utc)
-        return item.description if hasattr(item, 'description') else item.title if hasattr(item, 'title') else item.tags
+        return getattr(item, field_name, None)
     return None

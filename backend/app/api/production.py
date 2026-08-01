@@ -154,14 +154,11 @@ async def create_job(data: ProductionRequest, db: AsyncSession = Depends(get_db)
         if not video_source:
             raise HTTPException(status_code=400, detail="No available raw video found")
 
-    # Generate output filename
-    import secrets
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    timestamp = int(now.timestamp())
-    rand_hex = secrets.token_hex(4)
-    channel_prefix = (channel.name or "CH")[:6].upper().replace(" ", "")
-    output_filename = f"final_{channel_prefix}-{rand_hex}_{timestamp}.mp4"
+    # Generate output filename: final_ + original source name
+    from pathlib import Path as _Path
+    source_stem = _Path(video_source).stem if video_source else "video"
+    source_ext = _Path(video_source).suffix if video_source else ".mp4"
+    output_filename = f"final_{source_stem}{source_ext}"
 
     # Create job
     # Convert custom_duration from HH:MM:SS to seconds
@@ -233,12 +230,11 @@ async def create_batch_jobs(data: ProductionRequest, db: AsyncSession = Depends(
     from datetime import datetime, timezone
 
     created = 0
+    custom_dur_seconds = hms_to_seconds(data.custom_duration) if data.custom_duration else None
     for item in media_items:
-        now = datetime.now(timezone.utc)
-        timestamp = int(now.timestamp())
-        rand_hex = secrets.token_hex(4)
-        channel_prefix = (channel.name or "CH")[:6].upper().replace(" ", "")
-        output_filename = f"final_{channel_prefix}-{rand_hex}_{timestamp}.mp4"
+        source_stem = Path(item.filename).stem
+        source_ext = Path(item.filename).suffix or ".mp4"
+        output_filename = f"final_{source_stem}{source_ext}"
 
         job = ProductionJob(
             channel_id=data.channel_id,

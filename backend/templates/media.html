@@ -17,7 +17,7 @@
                 <span x-text="'ID: ' + (activeChannel?.id || '-')"></span>
             </span>
             <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
-                <span x-text="'Folder: ' + (groups[currentGroup]?.label || 'Video')"></span>
+                <span x-text="'Folder: ' + (currentGroup === 'metadata' ? 'Metadata — ' + metaTabLabel() : (groups[currentGroup]?.label || 'Video'))"></span>
             </span>
         </div>
     </div>
@@ -53,7 +53,7 @@
         <template x-for="(meta, key) in groups" :key="key">
             <a href="#" @click.prevent="loadGroup(key)"
                class="block rounded-xl border p-4 transition-all hover:-translate-y-0.5 cursor-pointer"
-               :class="currentGroup === key ? 'border-blue-300 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white hover:border-blue-200'">
+               :class="currentGroup === key && !isMetaSubView() ? 'border-blue-300 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white hover:border-blue-200'">
                 <div class="text-sm font-bold text-slate-900" x-text="meta.label"></div>
                 <div class="text-[11px] text-slate-500 mt-0.5" x-text="meta.desc"></div>
                 <template x-if="key === 'metadata' && stats['metadata_title']">
@@ -61,7 +61,7 @@
                         <div>Judul: <span x-text="stats['metadata_title']?.count || 0"></span></div>
                         <div>Deskripsi: <span x-text="stats['metadata_description']?.count || 0"></span></div>
                         <div>Tag: <span x-text="stats['metadata_tag']?.count || 0"></span></div>
-                        <div>Playlist: <span x-text="stats['metadata_playlist']?.count || 0"></span></div>
+                        <div>Playlist: <span x-text="stats['metadata_subtitle']?.count || 0"></span></div>
                     </div>
                 </template>
                 <div class="flex justify-between items-end mt-3">
@@ -75,160 +75,304 @@
         </template>
     </div>
 
-    {# ── Upload Section ── #}
-    <div class="bg-white rounded-xl border border-slate-200 p-5">
-        <div class="text-sm font-bold text-slate-900">Upload Asset</div>
-        <div class="text-xs text-slate-500 mt-1">Upload file ke folder channel aktif</div>
-
-        <form @submit.prevent="uploadFile()" class="mt-4">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Target Folder</label>
-                    <select x-model="uploadGroup" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
-                        <template x-for="(meta, key) in groups" :key="key">
-                            <option :value="key" x-text="meta.label"></option>
-                        </template>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">File Asset</label>
-                    <input type="file" x-ref="fileInput" multiple required
-                           class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-600">
-                </div>
-            </div>
-
-            {# Metadata subtype (hanya untuk metadata group) #}
-            <div x-show="uploadGroup === 'metadata'" class="mt-4">
-                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Type Metadata</label>
-                <select x-model="metadataCategory" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
-                    <option value="">Pilih subtype</option>
-                    <option value="title_bank">Judul</option>
-                    <option value="description_bank">Deskripsi</option>
-                    <option value="tag_bank">Tag</option>
-                    <option value="playlist_bank">Playlist</option>
-                </select>
-            </div>
-
-
-            <div class="mt-4 flex gap-2 flex-wrap">
-                <button type="submit" :disabled="uploading || !activeChannel"
-                        class="px-6 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 transition-all">
-                    <span x-show="!uploading">Upload Asset</span>
-                    <span x-show="uploading">Uploading...</span>
-                </button>
-                <button type="button" @click="resetUpload()" class="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Reset</button>
-            </div>
-            <div class="mt-3 text-xs text-slate-500" x-text="uploadStatus"></div>
-            <div class="h-2 bg-slate-100 rounded-full mt-2 overflow-hidden">
-                <div class="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all" :style="'width:' + uploadProgress + '%'"></div>
-            </div>
-        </form>
-    </div>
-
-    {# ── File List ── #}
-    <div class="bg-white rounded-xl border border-slate-200 p-5">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <div>
-                <div class="text-sm font-bold text-slate-900">File List &mdash; <span x-text="groups[currentGroup]?.label || 'Video'"></span></div>
-                <div class="text-xs text-slate-500">Daftar file pada folder aktif</div>
-            </div>
-            <div class="flex gap-2 flex-wrap">
-                <div class="flex gap-2">
-                    <input type="text" x-model="searchQuery" @keyup.enter="loadFiles()" placeholder="Cari nama file..."
-                           class="px-3 py-2 rounded-lg border border-slate-200 text-sm w-56 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
-                    <button @click="loadFiles()" class="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cari</button>
-                    <button x-show="searchQuery" @click="searchQuery=''; loadFiles()" class="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Reset</button>
-                </div>
-                <button x-show="files.length > 0 && activeChannel" @click="deleteAll()"
-                        class="px-3 py-2 rounded-lg text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100">Delete All</button>
-            </div>
-        </div>
-
-        {# Empty state #}
-        <div x-show="!loading && files.length === 0" class="py-16 text-center border-2 border-dashed border-slate-200 rounded-xl">
-            <div class="text-4xl mb-3">📁</div>
-            <div class="text-sm text-slate-500">Belum ada file pada folder <strong x-text="groups[currentGroup]?.label || 'Video'"></strong> untuk channel ini.</div>
-        </div>
-
-        {# Loading #}
-        <div x-show="loading" class="py-16 text-center">
-            <div class="inline-block w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
-            <div class="text-sm text-slate-500 mt-3">Memuat file...</div>
-        </div>
-
-        {# Table #}
-        <div x-show="!loading && files.length > 0" class="overflow-x-auto">
-            <table class="w-full">
-                <thead>
-                    <tr class="border-b border-slate-100">
-                        <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">File</th>
-                        <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Type</th>
-                        <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ukuran</th>
-                        <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Diupdate</th>
-                        <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-32">Aksi</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <template x-for="file in files" :key="file.id">
-                        <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                            <td class="py-3 px-4">
-                                <div class="text-sm font-semibold text-slate-900" x-text="file.original_name || file.filename"></div>
-                                <div class="text-[11px] text-slate-400 mt-0.5 break-all" x-text="file.file_path"></div>
-                            </td>
-                            <td class="py-3 px-4">
-                                <span class="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full"
-                                      x-text="(file.asset_type || '-').toUpperCase()"></span>
-                            </td>
-                            <td class="py-3 px-4 text-sm text-slate-600" x-text="formatBytes(file.file_size)"></td>
-                            <td class="py-3 px-4 text-sm text-slate-500" x-text="formatDate(file.updated_at || file.created_at)"></td>
-                            <td class="py-3 px-4">
-                                <div class="flex gap-2">
-                                    {# Download #}
-                                    <a :href="'/api/media/download/' + file.id"
-                                       class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-colors"
-                                       title="Download">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                                    </a>
-                                    {# Preview (video/image) #}
-                                    <a x-show="file.mime && (file.mime.startsWith('video/') || file.mime.startsWith('image/'))"
-                                       :href="'/api/media/preview-page/' + file.id" target="_blank"
-                                       class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:text-emerald-600 hover:border-emerald-200 transition-colors"
-                                       title="Preview">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                                    </a>
-                                    {# Delete #}
-                                    <button @click="deleteFile(file.id)"
-                                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50 transition-colors"
-                                            title="Hapus">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
+    {# ── Metadata Pool View (tampil saat group=metadata) ── #}
+    <template x-if="currentGroup === 'metadata'">
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            {# Metadata Tabs #}
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <div class="flex gap-1 bg-slate-100 p-1 rounded-lg">
+                    <template x-for="tab in metaTabs" :key="tab.key">
+                        <button @click="switchMetaTab(tab.key)"
+                                class="px-4 py-2 rounded-md text-xs font-bold transition-all"
+                                :class="metaTab === tab.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'">
+                            <span x-text="tab.label"></span>
+                            <span class="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                  :class="metaTab === tab.key ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'"
+                                  x-text="metaStats[tab.key]?.total || 0"></span>
+                        </button>
                     </template>
-                </tbody>
-            </table>
-        </div>
+                </div>
+                <div class="flex gap-2 flex-wrap">
+                    <button @click="showMetaUpload = !showMetaUpload"
+                            class="px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800">
+                        Upload .txt
+                    </button>
+                    <button @click="showMetaAdd = !showMetaAdd"
+                            class="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                        + Tambah Manual
+                    </button>
+                    <button @click="resetMetaUsage()"
+                            class="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-blue-600 hover:bg-blue-50"
+                            title="Reset rotasi: semua item mulai dari awal lagi">
+                        Reset Rotasi
+                    </button>
+                    <button @click="deleteAllMeta()"
+                            class="px-3 py-2 rounded-lg text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100">
+                        Delete All
+                    </button>
+                </div>
+            </div>
 
-        {# Pagination #}
-        <div x-show="totalPages > 1" class="flex items-center gap-2 mt-4 flex-wrap">
-            <button @click="goPage(page - 1)" :disabled="page <= 1"
-                    class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Prev</button>
-            <template x-for="p in paginationRange()" :key="p">
-                <button @click="goPage(p)"
-                        :class="p === page ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
-                        class="px-3 py-1.5 rounded-lg border text-xs font-semibold" x-text="p"></button>
-            </template>
-            <button @click="goPage(page + 1)" :disabled="page >= totalPages"
-                    class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Next</button>
+            {# Upload .txt panel #}
+            <div x-show="showMetaUpload" x-cloak class="mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div class="text-xs font-bold text-slate-700 mb-2">Upload file .txt (satu item per baris, append ke yang sudah ada)</div>
+                <form @submit.prevent="uploadMetaFile()" class="flex gap-3 items-end flex-wrap">
+                    <div>
+                        <input type="file" x-ref="metaFileInput" accept=".txt" required
+                               class="text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-600">
+                    </div>
+                    <button type="submit" :disabled="metaUploading"
+                            class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-50">
+                        <span x-show="!metaUploading">Upload</span>
+                        <span x-show="metaUploading">Uploading...</span>
+                    </button>
+                    <button type="button" @click="showMetaUpload = false" class="px-3 py-2 text-xs text-slate-500">Batal</button>
+                </form>
+            </div>
+
+            {# Tambah manual panel #}
+            <div x-show="showMetaAdd" x-cloak class="mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div class="text-xs font-bold text-slate-700 mb-2">Tambah 1 <span x-text="metaTabLabel().toLowerCase()"></span></div>
+                <form @submit.prevent="createMetaItem()" class="flex gap-3 items-end flex-wrap">
+                    <div class="flex-1 min-w-[300px]">
+                        <input type="text" x-model="metaNewContent" required placeholder="Tulis konten..."
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
+                    </div>
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800">Tambah</button>
+                    <button type="button" @click="showMetaAdd = false; metaNewContent = ''" class="px-3 py-2 text-xs text-slate-500">Batal</button>
+                </form>
+            </div>
+
+            {# Search #}
+            <div class="flex gap-2 mb-3">
+                <input type="text" x-model="metaSearch" @keyup.enter="loadMetaItems()" placeholder="Cari..."
+                       class="px-3 py-2 rounded-lg border border-slate-200 text-sm w-56 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
+                <button @click="loadMetaItems()" class="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cari</button>
+                <button x-show="metaSearch" @click="metaSearch = ''; loadMetaItems()" class="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Reset</button>
+            </div>
+
+            {# Info bar #}
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-xs text-slate-500">
+                    Total: <strong x-text="metaPagination.total || 0"></strong> item
+                    <span x-show="metaStats[metaTab]?.used" class="ml-2 text-blue-600">
+                        (terpakai: <span x-text="metaStats[metaTab]?.used || 0"></span>)
+                    </span>
+                </div>
+                <div class="text-xs text-slate-400" x-text="'Halaman ' + metaPagination.page + ' dari ' + metaPagination.pages"></div>
+            </div>
+
+            {# Loading #}
+            <div x-show="metaLoading" class="py-10 text-center">
+                <div class="inline-block w-6 h-6 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
+            </div>
+
+            {# Empty #}
+            <div x-show="!metaLoading && metaItems.length === 0" class="py-12 text-center border-2 border-dashed border-slate-200 rounded-xl">
+                <div class="text-3xl mb-2">📋</div>
+                <div class="text-sm text-slate-500">Belum ada data <span x-text="metaTabLabel().toLowerCase()"></span>.</div>
+                <div class="text-xs text-slate-400 mt-1">Upload file .txt atau tambah manual.</div>
+            </div>
+
+            {# Table #}
+            <div x-show="!metaLoading && metaItems.length > 0" class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b border-slate-100">
+                            <th class="text-left py-2 px-3 text-[10px] font-bold text-slate-400 uppercase w-12">#</th>
+                            <th class="text-left py-2 px-3 text-[10px] font-bold text-slate-400 uppercase">Konten</th>
+                            <th class="text-left py-2 px-3 text-[10px] font-bold text-slate-400 uppercase w-28">Status</th>
+                            <th class="text-left py-2 px-3 text-[10px] font-bold text-slate-400 uppercase w-24">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="(item, idx) in metaItems" :key="item.id">
+                            <tr class="border-b border-slate-50 hover:bg-slate-50">
+                                <td class="py-2 px-3 text-xs text-slate-400 font-mono" x-text="item.id"></td>
+                                <td class="py-2 px-3">
+                                    <template x-if="metaEditId !== item.id">
+                                        <div class="text-sm text-slate-900 break-words" x-text="item.content"></div>
+                                    </template>
+                                    <template x-if="metaEditId === item.id">
+                                        <div class="flex gap-2">
+                                            <input type="text" x-model="metaEditContent" @keyup.enter="saveMetaEdit()" @keyup.escape="cancelMetaEdit()"
+                                                   class="flex-1 px-2 py-1 rounded border border-blue-300 text-sm focus:border-blue-500 outline-none" x-ref="metaEditInput">
+                                            <button @click="saveMetaEdit()" class="px-2 py-1 rounded bg-blue-600 text-white text-xs font-semibold">Simpan</button>
+                                            <button @click="cancelMetaEdit()" class="px-2 py-1 text-xs text-slate-500">Batal</button>
+                                        </div>
+                                    </template>
+                                </td>
+                                <td class="py-2 px-3">
+                                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                                          :class="item.used_at ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'"
+                                          x-text="item.used_at ? 'Terpakai' : 'Baru'"></span>
+                                </td>
+                                <td class="py-2 px-3">
+                                    <div class="flex gap-1">
+                                        <button @click="startMetaEdit(item)" class="w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-200 grid place-items-center" title="Edit">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                        </button>
+                                        <button @click="deleteMetaItem(item.id)" class="w-7 h-7 rounded border border-rose-200 text-rose-500 hover:bg-rose-50 grid place-items-center" title="Hapus">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            {# Pagination #}
+            <div x-show="metaPagination.pages > 1" class="flex items-center gap-2 mt-4 flex-wrap">
+                <button @click="goMetaPage(metaPagination.page - 1)" :disabled="metaPagination.page <= 1"
+                        class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Prev</button>
+                <template x-for="p in metaPaginationRange()" :key="p">
+                    <button @click="goMetaPage(p)"
+                            :class="p === metaPagination.page ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+                            class="px-3 py-1.5 rounded-lg border text-xs font-semibold" x-text="p"></button>
+                </template>
+                <button @click="goMetaPage(metaPagination.page + 1)" :disabled="metaPagination.page >= metaPagination.pages"
+                        class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Next</button>
+            </div>
         </div>
-    </div>
+    </template>
+
+    {# ── Upload Section (untuk group non-metadata) ── #}
+    <template x-if="currentGroup !== 'metadata'">
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="text-sm font-bold text-slate-900">Upload Asset</div>
+            <div class="text-xs text-slate-500 mt-1">Upload file ke folder channel aktif</div>
+
+            <form @submit.prevent="uploadFile()" class="mt-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Target Folder</label>
+                        <select x-model="uploadGroup" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
+                            <template x-for="(meta, key) in groups" :key="key">
+                                <option :value="key" x-text="meta.label" :disabled="key === 'metadata'"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">File Asset</label>
+                        <input type="file" x-ref="fileInput" multiple required
+                               class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-600">
+                    </div>
+                </div>
+
+                <div class="mt-4 flex gap-2 flex-wrap">
+                    <button type="submit" :disabled="uploading || !activeChannel"
+                            class="px-6 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 transition-all">
+                        <span x-show="!uploading">Upload Asset</span>
+                        <span x-show="uploading">Uploading...</span>
+                    </button>
+                    <button type="button" @click="resetUpload()" class="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Reset</button>
+                </div>
+                <div class="mt-3 text-xs text-slate-500" x-text="uploadStatus"></div>
+                <div class="h-2 bg-slate-100 rounded-full mt-2 overflow-hidden">
+                    <div class="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all" :style="'width:' + uploadProgress + '%'"></div>
+                </div>
+            </form>
+        </div>
+    </template>
+
+    {# ── File List (untuk group non-metadata) ── #}
+    <template x-if="currentGroup !== 'metadata'">
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                    <div class="text-sm font-bold text-slate-900">File List &mdash; <span x-text="groups[currentGroup]?.label || 'Video'"></span></div>
+                    <div class="text-xs text-slate-500">Daftar file pada folder aktif</div>
+                </div>
+                <div class="flex gap-2 flex-wrap">
+                    <div class="flex gap-2">
+                        <input type="text" x-model="searchQuery" @keyup.enter="loadFiles()" placeholder="Cari nama file..."
+                               class="px-3 py-2 rounded-lg border border-slate-200 text-sm w-56 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
+                        <button @click="loadFiles()" class="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cari</button>
+                        <button x-show="searchQuery" @click="searchQuery=''; loadFiles()" class="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Reset</button>
+                    </div>
+                    <button x-show="files.length > 0 && activeChannel" @click="deleteAll()"
+                            class="px-3 py-2 rounded-lg text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100">Delete All</button>
+                </div>
+            </div>
+
+            <div x-show="!loading && files.length === 0" class="py-16 text-center border-2 border-dashed border-slate-200 rounded-xl">
+                <div class="text-4xl mb-3">📁</div>
+                <div class="text-sm text-slate-500">Belum ada file pada folder <strong x-text="groups[currentGroup]?.label || 'Video'"></strong> untuk channel ini.</div>
+            </div>
+
+            <div x-show="loading" class="py-16 text-center">
+                <div class="inline-block w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
+                <div class="text-sm text-slate-500 mt-3">Memuat file...</div>
+            </div>
+
+            <div x-show="!loading && files.length > 0" class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b border-slate-100">
+                            <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">File</th>
+                            <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Type</th>
+                            <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ukuran</th>
+                            <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Diupdate</th>
+                            <th class="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-32">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="file in files" :key="file.id">
+                            <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                <td class="py-3 px-4">
+                                    <div class="text-sm font-semibold text-slate-900" x-text="file.original_name || file.filename"></div>
+                                    <div class="text-[11px] text-slate-400 mt-0.5 break-all" x-text="file.file_path"></div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <span class="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full"
+                                          x-text="(file.asset_type || '-').toUpperCase()"></span>
+                                </td>
+                                <td class="py-3 px-4 text-sm text-slate-600" x-text="formatBytes(file.file_size)"></td>
+                                <td class="py-3 px-4 text-sm text-slate-500" x-text="formatDate(file.updated_at || file.created_at)"></td>
+                                <td class="py-3 px-4">
+                                    <div class="flex gap-2">
+                                        <a :href="'/api/media/download/' + file.id"
+                                           class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-colors" title="Download">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                                        </a>
+                                        <a x-show="file.mime && (file.mime.startsWith('video/') || file.mime.startsWith('image/'))"
+                                           :href="'/api/media/preview-page/' + file.id" target="_blank"
+                                           class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:text-emerald-600 hover:border-emerald-200 transition-colors" title="Preview">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                        </a>
+                                        <button @click="deleteFile(file.id)"
+                                                class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50 transition-colors" title="Hapus">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <div x-show="totalPages > 1" class="flex items-center gap-2 mt-4 flex-wrap">
+                <button @click="goPage(page - 1)" :disabled="page <= 1"
+                        class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Prev</button>
+                <template x-for="p in paginationRange()" :key="p">
+                    <button @click="goPage(p)"
+                            :class="p === page ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+                            class="px-3 py-1.5 rounded-lg border text-xs font-semibold" x-text="p"></button>
+                </template>
+                <button @click="goPage(page + 1)" :disabled="page >= totalPages"
+                        class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Next</button>
+            </div>
+        </div>
+    </template>
 </div>
 
 <script>
 function mediaPage() {
     return {
-        // State
+        // ── Regular file state ──
         currentGroup: 'video',
         groups: {},
         stats: {},
@@ -244,37 +388,56 @@ function mediaPage() {
         uploadGroup: 'video',
         uploadStatus: 'Status: idle',
         uploadProgress: 0,
-        metadataCategory: '',
         activeChannel: null,
         alertMsg: '',
         alertType: 'ok',
 
+        // ── Metadata pool state ──
+        metaTab: 'title',
+        metaTabs: [
+            {key: 'title', label: 'Judul'},
+            {key: 'description', label: 'Deskripsi'},
+            {key: 'tag', label: 'Tag'},
+            {key: 'playlist', label: 'Playlist'},
+        ],
+        metaItems: [],
+        metaLoading: false,
+        metaPagination: {page: 1, pages: 1, total: 0},
+        metaSearch: '',
+        metaStats: {},
+        metaEditId: null,
+        metaEditContent: '',
+        metaNewContent: '',
+        showMetaUpload: false,
+        showMetaAdd: false,
+        metaUploading: false,
+
         async init() {
             await this.loadGroups();
-            // Sync dengan channel selector di sidebar
             this.syncChannel();
-            // Dengarkan perubahan channel dari sidebar
             window.addEventListener('storage', (e) => { if (e.key === 'jb_ch') this.syncChannel(); });
-            // Poll setiap 2 detik untuk deteksi perubahan channel
             setInterval(() => this.syncChannel(), 2000);
         },
 
         syncChannel() {
             const chId = localStorage.getItem('jb_ch');
             if (!chId) {
-                // Tidak ada channel dipilih, pakai channel pertama dari list global
                 if (typeof channels !== 'undefined' && channels.length > 0) {
                     this.activeChannel = channels[0];
                     localStorage.setItem('jb_ch', String(channels[0].id));
                 }
             } else {
-                // Cari dari list global
                 if (typeof channels !== 'undefined' && channels.length > 0) {
                     const found = channels.find(c => String(c.id) === String(chId));
                     if (found && (!this.activeChannel || this.activeChannel.id !== found.id)) {
                         this.activeChannel = found;
                         this.loadStats();
-                        this.loadFiles();
+                        if (this.currentGroup === 'metadata') {
+                            this.loadMetaItems();
+                            this.loadMetaStatsAll();
+                        } else {
+                            this.loadFiles();
+                        }
                     }
                 }
             }
@@ -302,7 +465,24 @@ function mediaPage() {
             return range;
         },
 
-        // ── API Calls ──
+        metaPaginationRange() {
+            const range = [];
+            const start = Math.max(1, this.metaPagination.page - 2);
+            const end = Math.min(this.metaPagination.pages, this.metaPagination.page + 2);
+            for (let i = start; i <= end; i++) range.push(i);
+            return range;
+        },
+
+        metaTabLabel() {
+            const tab = this.metaTabs.find(t => t.key === this.metaTab);
+            return tab ? tab.label : '';
+        },
+
+        isMetaSubView() {
+            return this.currentGroup === 'metadata';
+        },
+
+        // ── API Calls: Regular ──
         async loadGroups() {
             try {
                 const r = await fetch('/api/media/groups');
@@ -321,19 +501,19 @@ function mediaPage() {
             } catch(e) { console.error('loadStats', e); }
         },
 
-        async loadDisk() {
-            try {
-                const r = await fetch('/api/media/disk');
-                this.disk = await r.json();
-            } catch(e) { console.error('loadDisk', e); }
-        },
-
         async loadGroup(group) {
             this.currentGroup = group;
             this.uploadGroup = group;
             this.page = 1;
             this.searchQuery = '';
-            await this.loadFiles();
+            if (group === 'metadata') {
+                this.metaPagination.page = 1;
+                this.metaSearch = '';
+                await this.loadMetaItems();
+                await this.loadMetaStatsAll();
+            } else {
+                await this.loadFiles();
+            }
             window.history.replaceState({}, '', '/media?group=' + group);
         },
 
@@ -361,14 +541,8 @@ function mediaPage() {
 
         async uploadFile() {
             const fileInput = this.$refs.fileInput;
-            if (!fileInput.files.length) {
-                this.uploadStatus = 'Status: pilih file dulu.';
-                return;
-            }
-            if (!this.activeChannel) {
-                this.uploadStatus = 'Status: pilih channel aktif dulu.';
-                return;
-            }
+            if (!fileInput.files.length) { this.uploadStatus = 'Status: pilih file dulu.'; return; }
+            if (!this.activeChannel) { this.uploadStatus = 'Status: pilih channel aktif dulu.'; return; }
 
             this.uploading = true;
             this.uploadStatus = 'Status: mengupload...';
@@ -377,41 +551,28 @@ function mediaPage() {
             const formData = new FormData();
             formData.append('channel_id', this.activeChannel.id);
             formData.append('asset_type', this.uploadGroup);
-            if (this.uploadGroup === 'metadata' && this.metadataCategory) {
-                formData.append('metadata_category', this.metadataCategory);
-            }
             for (let f of fileInput.files) formData.append('files', f);
 
             try {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/media/upload');
-
                 xhr.upload.onprogress = (e) => {
                     if (e.lengthComputable) {
                         this.uploadProgress = Math.round((e.loaded / e.total) * 100);
                         this.uploadStatus = 'Status: upload ' + this.uploadProgress + '%';
                     }
                 };
-
                 xhr.onload = () => {
                     this.uploading = false;
                     if (xhr.status >= 200 && xhr.status < 300) {
                         this.uploadProgress = 100;
                         const result = JSON.parse(xhr.responseText);
-                        const count = result.uploaded_count || 0;
-                        const errors = result.error_count || 0;
-                        let msg = `Upload sukses: ${count} file`;
-                        if (errors > 0) msg += `, ${errors} gagal`;
                         this.uploadStatus = 'Status: upload selesai!';
-                        this.showAlert('ok', msg);
+                        this.showAlert('ok', `Upload sukses: ${result.uploaded_count || 0} file`);
                         this.loadFiles();
                         this.loadStats();
                         fileInput.value = '';
-                        // Reset progress bar setelah 2 detik
-                        setTimeout(() => {
-                            this.uploadProgress = 0;
-                            this.uploadStatus = 'Status: idle';
-                        }, 2000);
+                        setTimeout(() => { this.uploadProgress = 0; this.uploadStatus = 'Status: idle'; }, 2000);
                     } else {
                         let msg = 'Upload gagal.';
                         try { msg = JSON.parse(xhr.responseText).detail || msg; } catch(e) {}
@@ -419,13 +580,11 @@ function mediaPage() {
                         this.showAlert('bad', msg);
                     }
                 };
-
                 xhr.onerror = () => {
                     this.uploading = false;
-                    this.uploadStatus = 'Status: upload gagal. Cek koneksi.';
+                    this.uploadStatus = 'Status: upload gagal.';
                     this.showAlert('bad', 'Upload gagal. Cek koneksi.');
                 };
-
                 xhr.send(formData);
             } catch(e) {
                 this.uploading = false;
@@ -437,7 +596,6 @@ function mediaPage() {
             this.$refs.fileInput.value = '';
             this.uploadProgress = 0;
             this.uploadStatus = 'Status: idle';
-            this.metadataCategory = '';
         },
 
         async deleteFile(id) {
@@ -445,11 +603,7 @@ function mediaPage() {
             try {
                 const r = await fetch('/api/media/' + id, {method: 'DELETE'});
                 const d = await r.json();
-                if (d.success) {
-                    this.showAlert('ok', 'Asset dihapus.');
-                    await this.loadFiles();
-                    await this.loadStats();
-                }
+                if (d.success) { this.showAlert('ok', 'Asset dihapus.'); await this.loadFiles(); await this.loadStats(); }
             } catch(e) { this.showAlert('bad', 'Gagal hapus file.'); }
         },
 
@@ -466,6 +620,168 @@ function mediaPage() {
                     await this.loadStats();
                 }
             } catch(e) { this.showAlert('bad', 'Gagal hapus semua.'); }
+        },
+
+        // ── API Calls: Metadata Pool ──
+        async switchMetaTab(tab) {
+            this.metaTab = tab;
+            this.metaPagination.page = 1;
+            this.metaSearch = '';
+            this.metaEditId = null;
+            await this.loadMetaItems();
+        },
+
+        async loadMetaItems() {
+            this.metaLoading = true;
+            try {
+                const chId = this.activeChannel?.id || 0;
+                if (!chId) { this.metaItems = []; this.metaLoading = false; return; }
+                let url = `/api/metadata/${this.metaTab}?channel_id=${chId}&page=${this.metaPagination.page}&per_page=50`;
+                if (this.metaSearch) url += '&q=' + encodeURIComponent(this.metaSearch);
+                const r = await fetch(url);
+                const d = await r.json();
+                this.metaItems = d.items || [];
+                this.metaPagination = {page: d.page, pages: d.pages, total: d.total};
+            } catch(e) { this.metaItems = []; console.error('loadMetaItems', e); }
+            this.metaLoading = false;
+        },
+
+        async loadMetaStatsAll() {
+            const chId = this.activeChannel?.id || 0;
+            if (!chId) return;
+            for (const tab of this.metaTabs) {
+                try {
+                    const r = await fetch(`/api/metadata/${tab.key}/stats?channel_id=${chId}`);
+                    this.metaStats[tab.key] = await r.json();
+                } catch(e) { this.metaStats[tab.key] = {total: 0, used: 0}; }
+            }
+        },
+
+        async goMetaPage(p) {
+            if (p < 1 || p > this.metaPagination.pages) return;
+            this.metaPagination.page = p;
+            await this.loadMetaItems();
+        },
+
+        async createMetaItem() {
+            if (!this.metaNewContent.trim()) return;
+            const chId = this.activeChannel?.id || 0;
+            if (!chId) return;
+            try {
+                const r = await fetch(`/api/metadata/${this.metaTab}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({channel_id: chId, content: this.metaNewContent.trim()}),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    this.metaNewContent = '';
+                    this.showAlert('ok', 'Item ditambahkan.');
+                    await this.loadMetaItems();
+                    await this.loadMetaStatsAll();
+                    await this.loadStats();
+                }
+            } catch(e) { this.showAlert('bad', 'Gagal tambah item.'); }
+        },
+
+        startMetaEdit(item) {
+            this.metaEditId = item.id;
+            this.metaEditContent = item.content;
+            this.$nextTick(() => { if (this.$refs.metaEditInput) this.$refs.metaEditInput.focus(); });
+        },
+
+        cancelMetaEdit() {
+            this.metaEditId = null;
+            this.metaEditContent = '';
+        },
+
+        async saveMetaEdit() {
+            if (!this.metaEditContent.trim()) return;
+            try {
+                const r = await fetch(`/api/metadata/${this.metaTab}/${this.metaEditId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content: this.metaEditContent.trim()}),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    this.cancelMetaEdit();
+                    this.showAlert('ok', 'Item diupdate.');
+                    await this.loadMetaItems();
+                }
+            } catch(e) { this.showAlert('bad', 'Gagal update item.'); }
+        },
+
+        async deleteMetaItem(id) {
+            if (!confirm('Hapus item ini?')) return;
+            try {
+                const r = await fetch(`/api/metadata/${this.metaTab}/${id}`, {method: 'DELETE'});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', 'Item dihapus.');
+                    await this.loadMetaItems();
+                    await this.loadMetaStatsAll();
+                    await this.loadStats();
+                }
+            } catch(e) { this.showAlert('bad', 'Gagal hapus item.'); }
+        },
+
+        async uploadMetaFile() {
+            const fileInput = this.$refs.metaFileInput;
+            if (!fileInput.files.length) return;
+            const chId = this.activeChannel?.id || 0;
+            if (!chId) return;
+
+            this.metaUploading = true;
+            const formData = new FormData();
+            formData.append('channel_id', chId);
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const r = await fetch(`/api/metadata/${this.metaTab}/upload`, {method: 'POST', body: formData});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', `Upload berhasil: ${d.added} item ditambahkan.`);
+                    this.showMetaUpload = false;
+                    fileInput.value = '';
+                    await this.loadMetaItems();
+                    await this.loadMetaStatsAll();
+                    await this.loadStats();
+                } else {
+                    this.showAlert('bad', d.detail || 'Upload gagal.');
+                }
+            } catch(e) { this.showAlert('bad', 'Upload gagal.'); }
+            this.metaUploading = false;
+        },
+
+        async deleteAllMeta() {
+            const label = this.metaTabLabel();
+            if (!confirm(`Delete SEMUA ${label} untuk channel ini? Tidak bisa dibatalkan.`)) return;
+            const chId = this.activeChannel?.id || 0;
+            try {
+                const r = await fetch(`/api/metadata/${this.metaTab}/all?channel_id=${chId}`, {method: 'DELETE'});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', `${label}: ${d.deleted} item dihapus.`);
+                    await this.loadMetaItems();
+                    await this.loadMetaStatsAll();
+                    await this.loadStats();
+                }
+            } catch(e) { this.showAlert('bad', 'Gagal hapus semua.'); }
+        },
+
+        async resetMetaUsage() {
+            if (!confirm('Reset rotasi? Semua item akan mulai dari awal lagi.')) return;
+            const chId = this.activeChannel?.id || 0;
+            try {
+                const r = await fetch(`/api/metadata/${this.metaTab}/reset-usage?channel_id=${chId}`, {method: 'POST'});
+                const d = await r.json();
+                if (d.success) {
+                    this.showAlert('ok', `Rotasi direset: ${d.reset} item.`);
+                    await this.loadMetaItems();
+                    await this.loadMetaStatsAll();
+                }
+            } catch(e) { this.showAlert('bad', 'Gagal reset rotasi.'); }
         },
 
         showAlert(type, msg) {

@@ -12,6 +12,7 @@ from app.api import channels, media, production, uploads, livestream, pipeline, 
 from app.api import google_auth
 from app.api import shorts
 from app.api import estafet
+from app.api import metadata
 
 
 @asynccontextmanager
@@ -54,6 +55,7 @@ app.include_router(livestream.router, prefix="/api/livestream", tags=["Livestrea
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["Pipeline"])
 app.include_router(shorts.router, prefix="/api/shorts", tags=["Shorts"])
 app.include_router(estafet.router, prefix="/api/estafet", tags=["Estafet"])
+app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
 
 
 @app.get("/api/health")

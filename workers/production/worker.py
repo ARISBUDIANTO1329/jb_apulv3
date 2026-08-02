@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg2
@@ -303,10 +304,22 @@ def process_auto_seamless(job_id: int):
     log.info(f"[SEAMLESS] Job {job_id} COMPLETED: {output_name}")
 
 
+def _write_dynamic_status(channel_id: int, data: dict):
+    """Write dynamic status JSON for UI polling."""
+    try:
+        status_dir = os.path.join(STORAGE_PATH, "app", "dynamic_status")
+        os.makedirs(status_dir, exist_ok=True)
+        status_path = os.path.join(status_dir, f"channel_{channel_id}.json")
+        with open(status_path, "w") as f:
+            json.dump(data, f, default=str)
+    except Exception as e:
+        log.warning(f"[DYNAMIC] Failed to write status: {e}")
+
 def process_dynamic_video(job_id: int):
     """
     Mode 3: Dynamic Video (merge_video)
     Random merge of raw videos with transitions.
+    Supports batch output via dynamic_output_count.
     """
     log.info(f"[DYNAMIC] Processing job {job_id}")
     job = get_job(job_id)
@@ -328,55 +341,133 @@ def process_dynamic_video(job_id: int):
     merge_transition_name = str(job.get("merge_transition_name") or "fade")
     merge_transition_duration = str(job.get("merge_transition_duration") or "1.0")
     merge_speed = str(job.get("merge_speed") or "1.0")
-    output_name = f"dynamic_merge_{int(time.time())}_{job_id}.mp4"
-    output_path = os.path.join(assets, "video", str(channel_id), output_name)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    temp_dir = os.path.join(STORAGE_PATH, "tmp", f"merge_job_{job_id}")
+    output_count = max(1, int(job.get("dynamic_output_count") or 1))
+    started_at = time.time()
 
-    cmd = [
-        PYTHON, str(BASE_DIR / "merge_video_worker.py"),
-        "--channel-id", str(channel_id),
-        "--job-id", str(job_id),
-        "--input-folder", raw_folder,
-        "--output-file", output_path,
-        "--temp-dir", temp_dir,
-        "--count", str(merge_count),
-        "--resolution", merge_resolution,
-        "--transition-enabled", merge_transition_enabled,
-        "--transition-name", merge_transition_name,
-        "--transition-duration", merge_transition_duration,
-        "--speed", merge_speed,
-        "--slow-enabled", ("1" if float(merge_speed) != 1.0 else "0"),
-    ]
+    # Write initial status
+    _write_dynamic_status(channel_id, {
+        "status": "running",
+        "progress": 0,
+        "message": f"Starting batch: {output_count} outputs",
+        "channel_id": channel_id,
+        "output_count": output_count,
+        "current_output": 0,
+        "video_per_merge": merge_count,
+        "stage": "running",
+        "output_file": None,
+        "size_bytes": 0,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "elapsed_seconds": 0,
+    })
 
-    if not run_step("dynamic_merge", cmd, job_id):
-        update_job(job_id, status="failed", error_message="Dynamic merge failed", final_status="failed")
-        return
+    completed = 0
+    last_output = None
 
-    # Parse output
-    try:
-        # The merge worker outputs JSON, get from stdout
-        size_bytes = int(os.path.getsize(output_path)) if os.path.exists(output_path) else 0
-        relative_path = f"assets/video/{channel_id}/{output_name}"
+    for i in range(1, output_count + 1):
+        ts = int(time.time())
+        output_name = f"dynamic_merge_{ts}_{job_id}_{i}.mp4"
+        output_path = os.path.join(assets, "video", str(channel_id), output_name)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        temp_dir = os.path.join(STORAGE_PATH, "tmp", f"merge_job_{job_id}_{i}")
 
-        conn = get_db()
+        cmd = [
+            PYTHON, str(BASE_DIR / "merge_video_worker.py"),
+            "--channel-id", str(channel_id),
+            "--job-id", str(job_id),
+            "--input-folder", raw_folder,
+            "--output-file", output_path,
+            "--temp-dir", temp_dir,
+            "--count", str(merge_count),
+            "--resolution", merge_resolution,
+            "--transition-enabled", merge_transition_enabled,
+            "--transition-name", merge_transition_name,
+            "--transition-duration", merge_transition_duration,
+            "--speed", merge_speed,
+            "--slow-enabled", ("1" if float(merge_speed) != 1.0 else "0"),
+        ]
+
+        progress_pct = int((i - 1) / output_count * 100)
+        update_job(job_id, progress=progress_pct, process_status=f"Dynamic: {i}/{output_count}")
+        _write_dynamic_status(channel_id, {
+            "status": "running",
+            "progress": progress_pct,
+            "message": f"Rendering {i}/{output_count}...",
+            "channel_id": channel_id,
+            "output_count": output_count,
+            "current_output": i - 1,
+            "video_per_merge": merge_count,
+            "stage": "running",
+            "output_file": output_name,
+            "size_bytes": 0,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "elapsed_seconds": int(time.time() - started_at),
+        })
+
+        step_name = f"dynamic_merge_{i}/{output_count}"
+        if not run_step(step_name, cmd, job_id):
+            update_job(job_id, status="failed", error_message=f"Dynamic merge failed at output {i}/{output_count}", final_status="failed")
+            _write_dynamic_status(channel_id, {
+                "status": "failed",
+                "progress": progress_pct,
+                "message": f"Failed at output {i}/{output_count}",
+                "channel_id": channel_id,
+                "output_count": output_count,
+                "current_output": i,
+                "video_per_merge": merge_count,
+                "stage": "failed",
+                "output_file": None,
+                "size_bytes": 0,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "elapsed_seconds": int(time.time() - started_at),
+            })
+            return
+
+        # Record output in media_items
         try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO media_items (channel_id, filename, file_path, asset_type, file_size, created_at)
-                    VALUES (%s, %s, %s, 'video', %s, NOW())
-                """, (channel_id, output_name, relative_path, size_bytes))
-                conn.commit()
-        finally:
-            conn.close()
+            size_bytes = int(os.path.getsize(output_path)) if os.path.exists(output_path) else 0
+            relative_path = f"assets/video/{channel_id}/{output_name}"
+            conn = get_db()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO media_items (channel_id, filename, file_path, asset_type, file_size, created_at)
+                        VALUES (%s, %s, %s, 'video', %s, NOW())
+                    """, (channel_id, output_name, relative_path, size_bytes))
+                    conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:
+            log.error(f"[DYNAMIC] Failed to record media_items: {exc}")
 
-        update_job(job_id, status="done", progress=100, final_status="done", final_path=output_path,
-                   output_filename=output_name, process_status="Dynamic merge done")
-        log.info(f"[DYNAMIC] Job {job_id} COMPLETED: {output_name}")
+        completed += 1
+        last_output = output_name
+        log.info(f"[DYNAMIC] Job {job_id} output {i}/{output_count} done: {output_name}")
 
-    except Exception as exc:
-        update_job(job_id, status="failed", error_message=str(exc), final_status="failed")
-        log.error(f"[DYNAMIC] Job {job_id} FAILED: {exc}")
+    # Done — update job with last output
+    final_path = os.path.join(assets, "video", str(channel_id), last_output)
+    update_job(job_id, status="done", progress=100, final_status="done", final_path=final_path,
+               output_filename=last_output, process_status=f"Dynamic merge done ({completed}/{output_count})")
+
+    _write_dynamic_status(channel_id, {
+        "status": "done",
+        "progress": 100,
+        "message": f"Selesai: {completed}/{output_count} video created",
+        "channel_id": channel_id,
+        "output_count": output_count,
+        "current_output": completed,
+        "video_per_merge": merge_count,
+        "stage": "done",
+        "output_file": last_output,
+        "size_bytes": 0,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "elapsed_seconds": int(time.time() - started_at),
+    })
+
+    log.info(f"[DYNAMIC] Job {job_id} COMPLETED: {completed}/{output_count} outputs")
 
 
 def main():

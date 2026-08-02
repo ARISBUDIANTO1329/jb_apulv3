@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
-FPS = 30
 AUDIO_RATE = 44100
 
 
@@ -87,7 +86,6 @@ def normalize_video(source_path, output_path, width, height, slow_enabled, speed
     output_duration = source_duration / speed if slow_enabled else source_duration
 
     video_filter = (
-        f"fps={FPS},"
         f"scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},"
         f"setsar=1,"
@@ -110,7 +108,7 @@ def normalize_video(source_path, output_path, width, height, slow_enabled, speed
         *inputs,
         "-filter_complex", filter_complex,
         "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-pix_fmt", "yuv420p", "-profile:v", "main", "-level", "4.1",
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
@@ -125,7 +123,7 @@ def normalize_video(source_path, output_path, width, height, slow_enabled, speed
 
 def concat_videos(segment_paths, output_path, transition_enabled, transition_name, transition_duration, logs):
     if not transition_enabled or transition_duration <= 0:
-        # Simple concat without transitions
+        # Simple concat without transitions — stream copy, fast
         list_file = output_path.parent / "_concat_list.txt"
         list_file.write_text(
             "\n".join(f"file '{p}'" for p in segment_paths),
@@ -152,24 +150,18 @@ def concat_videos(segment_paths, output_path, transition_enabled, transition_nam
         # Build xfade filter chain
         filter_parts = []
         current = "[0:v]"
-        total_duration = 0
 
         for i in range(1, len(segment_paths)):
             seg_dur = ffprobe_duration(segment_paths[i - 1])
             offset = max(0, seg_dur - transition_duration)
             next_in = f"[{i}:v]"
-
-            if i == 1:
-                out = "[vout]" if i == len(segment_paths) - 1 else f"[v{i}]"
-            else:
-                out = "[vout]" if i == len(segment_paths) - 1 else f"[v{i}]"
+            out = "[vout]" if i == len(segment_paths) - 1 else f"[v{i}]"
 
             filter_parts.append(
                 f"{current}{next_in}xfade=transition={transition_name}:"
                 f"duration={transition_duration}:offset={offset:.3f}{out}"
             )
             current = out
-            total_duration += seg_dur - transition_duration
 
         # Audio crossfade
         audio_parts = []
@@ -187,7 +179,7 @@ def concat_videos(segment_paths, output_path, transition_enabled, transition_nam
             *inputs,
             "-filter_complex", filter_complex,
             "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
             "-c:a", "aac", "-b:a", "128k",
             "-movflags", "+faststart",
             str(output_path),

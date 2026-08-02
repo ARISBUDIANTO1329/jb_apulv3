@@ -548,10 +548,15 @@ async def _start_all_jobs(data: ProductionRequest, db: AsyncSession):
     items = media_result.scalars().all()
 
     created = 0
+    custom_dur_seconds = hms_to_seconds(data.custom_duration) if data.custom_duration else None
     for item in items:
         key = f"assets/{asset_type}/{data.channel_id}/{item.filename}"
         if key in cooldown_keys:
             continue
+
+        source_stem = Path(item.filename).stem
+        source_ext = Path(item.filename).suffix or ".mp4"
+        output_filename = f"final_{source_stem}{source_ext}"
 
         job = ProductionJob(
             channel_id=data.channel_id,
@@ -569,6 +574,7 @@ async def _start_all_jobs(data: ProductionRequest, db: AsyncSession):
             production_method=method,
             tail_length=data.tail_length,
             slowmo_percent=data.slowmo_percent,
+            output_filename=output_filename,
             status="pending",
         )
         db.add(job)

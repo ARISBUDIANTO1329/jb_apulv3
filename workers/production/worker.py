@@ -183,6 +183,22 @@ def process_final_production(job_id: int):
     append_log(job_id, f"[FINAL] Job {job_id} COMPLETED")
 
 
+def _update_seamless_progress(progress_id: int, progress: int, status: str, message: str):
+    """Update auto_seamless_progresses record."""
+    try:
+        conn = get_db()
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE auto_seamless_progresses
+                   SET progress=%s, status=%s, message=%s, updated_at=NOW()
+                   WHERE id=%s""",
+                (progress, status, message, progress_id),
+            )
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning(f"[SEAMLESS] Failed to update progress {progress_id}: {e}")
+
 def process_auto_seamless(job_id: int):
     """
     Mode 2: Auto Seamless (raw_video_auto_seamless)
@@ -207,10 +223,33 @@ def process_auto_seamless(job_id: int):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     tail_length = str(job.get("tail_length") or 3)
+
+    # Create progress record for UI tracking
+    progress_id = None
+    try:
+        conn = get_db()
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO auto_seamless_progresses
+                   (channel_id, raw_filename, input_path, output_path, progress, status, message, created_at, updated_at)
+                   VALUES (%s, %s, %s, %s, 0, 'processing', 'Starting...', NOW(), NOW())
+                   RETURNING id""",
+                (channel_id, video_source, raw_path, output_path),
+            )
+            progress_id = cur.fetchone()["id"]
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning(f"[SEAMLESS] Failed to create progress record: {e}")
+
     cmd = [PYTHON, str(UTILS_DIR / "master_preprocess.py"), raw_path, output_path, tail_length]
+    if progress_id:
+        cmd.append(str(progress_id))
 
     if not run_step("auto_seamless", cmd, job_id):
         update_job(job_id, status="failed", error_message="Seamless preprocess failed", final_status="failed")
+        if progress_id:
+            _update_seamless_progress(progress_id, 0, "failed", "Seamless preprocess failed")
         return
 
     # Slowmo post-processing
@@ -234,6 +273,8 @@ def process_auto_seamless(job_id: int):
 
         if not run_step("slowmo_postprocess", slowmo_cmd, job_id):
             update_job(job_id, status="failed", error_message="Slowmo post-process failed", final_status="failed")
+            if progress_id:
+                _update_seamless_progress(progress_id, 0, "failed", "Slowmo post-process failed")
             if os.path.exists(slowmo_tmp):
                 os.remove(slowmo_tmp)
             return
@@ -257,6 +298,8 @@ def process_auto_seamless(job_id: int):
 
     update_job(job_id, status="done", progress=100, final_status="done", final_path=output_path,
                output_filename=output_name, process_status="Seamless done")
+    if progress_id:
+        _update_seamless_progress(progress_id, 100, "done", f"Done: {output_name}")
     log.info(f"[SEAMLESS] Job {job_id} COMPLETED: {output_name}")
 
 

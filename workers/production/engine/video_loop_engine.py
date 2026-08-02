@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from db import get_db, update_progress, append_log
+from db import get_db, update_progress, append_log, update_job
 
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
@@ -30,10 +30,16 @@ def get_duration(path: str) -> float:
         return 0.0
 
 
-def run_ffmpeg(cmd: list):
-    """Run FFmpeg command, exit on failure."""
-    p = subprocess.run(cmd)
+def run_ffmpeg(cmd: list, job_id: int = 0):
+    """Run FFmpeg command, log error detail to DB on failure."""
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if p.returncode != 0:
+        error_detail = f"FFmpeg failed (rc={p.returncode}): {(p.stdout or '')[-300:]}"
+        if job_id:
+            append_log(job_id, f"ERROR: {error_detail}")
+            update_job(job_id, error_message=error_detail[:500])
+
+        print(error_detail)
         sys.exit(1)
 
 
@@ -126,7 +132,7 @@ def main():
     # Intro segment
     if intro_video:
         seg_intro = os.path.join(tmp_dir, f"seg_intro_{job_id}.mp4")
-        run_ffmpeg([FFMPEG, "-y", "-i", intro_video, "-t", str(intro_duration), "-c", "copy", seg_intro])
+        run_ffmpeg([FFMPEG, "-y", "-i", intro_video, "-t", str(intro_duration), "-c", "copy", seg_intro], job_id)
         segments.append(seg_intro)
 
     # Main video segment (skip intro portion)
@@ -136,7 +142,8 @@ def main():
         FFMPEG, "-y",
         "-ss", str(intro_duration), "-i", main_video,
         "-t", str(continue_duration), "-c", "copy", seg_continue,
-    ])
+    ], job_id)
+
     segments.append(seg_continue)
 
     # Loop remaining
@@ -147,7 +154,8 @@ def main():
             FFMPEG, "-y",
             "-stream_loop", "-1", "-i", main_video,
             "-t", str(remaining), "-c", "copy", seg_loop,
-        ])
+        ], job_id)
+
         segments.append(seg_loop)
 
     # Concat all segments
@@ -170,7 +178,8 @@ def main():
         "-f", "concat", "-safe", "0",
         "-i", list_file.name,
         "-c", "copy", output_video,
-    ])
+    ], job_id)
+
 
     cur.execute(
         "UPDATE production_jobs SET video_status='done', video_path=%s, updated_at=NOW() WHERE id=%s",

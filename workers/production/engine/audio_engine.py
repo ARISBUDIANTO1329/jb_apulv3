@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from db import get_db, update_progress, append_log
+from db import get_db, update_progress, append_log, update_job
 
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
@@ -35,10 +35,16 @@ def get_duration(path: str) -> float:
         return 0.0
 
 
-def run_ffmpeg(cmd: list):
-    """Run FFmpeg command, exit on failure."""
-    p = subprocess.run(cmd)
+def run_ffmpeg(cmd: list, job_id: int = 0):
+    """Run FFmpeg command, log error detail to DB on failure."""
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if p.returncode != 0:
+        error_detail = f"FFmpeg failed (rc={p.returncode}): {(p.stdout or '')[-300:]}"
+        if job_id:
+            append_log(job_id, f"ERROR: {error_detail}")
+            update_job(job_id, error_message=error_detail[:500])
+
+        print(error_detail)
         sys.exit(1)
 
 
@@ -159,7 +165,8 @@ def main():
                             "-i", list_file.name,
                             "-c:a", "pcm_s16le",
                             merged_mp3,
-                        ])
+                        ], job_id)
+
                         mp3_file = merged_mp3
                 else:
                     # Mode "mp3": use num_songs as count
@@ -181,7 +188,8 @@ def main():
                             "-i", list_file.name,
                             "-c:a", "pcm_s16le",
                             merged_mp3,
-                        ])
+                        ], job_id)
+
                         mp3_file = merged_mp3
 
     # --- SFX ---
@@ -255,26 +263,28 @@ def main():
             "-t", str(final_duration),
             "-c:a", "pcm_s16le", output_audio,
         ]
-        run_ffmpeg(cmd)
+        run_ffmpeg(cmd, job_id)
 
     elif use_mp3:
         cmd = [FFMPEG, "-y"]
         if not is_concat:
             cmd += ["-stream_loop", "-1"]
         cmd += ["-i", mp3_file, "-t", str(final_duration), "-c:a", "pcm_s16le", output_audio]
-        run_ffmpeg(cmd)
+        run_ffmpeg(cmd, job_id)
 
     elif use_sfx:
         run_ffmpeg([
             FFMPEG, "-y", "-stream_loop", "-1", "-i", sfx_file,
             "-t", str(final_duration), "-c:a", "pcm_s16le", output_audio,
-        ])
+        ], job_id)
+
 
     else:
         run_ffmpeg([
             FFMPEG, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
             "-t", str(final_duration), "-c:a", "pcm_s16le", output_audio,
-        ])
+        ], job_id)
+
 
     # --- Validate ---
     update_progress(job_id, 90, "Audio: validasi output")

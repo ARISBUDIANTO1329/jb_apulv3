@@ -341,7 +341,7 @@ Return JSON array:
 Rules: title 60-70 chars with emoji, desc 2-3 sentences with CTA, 8-12 tags, 1 sentence reason."""
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{settings['base_url']}/chat/completions",
                 headers={
@@ -349,9 +349,9 @@ Rules: title 60-70 chars with emoji, desc 2-3 sentences with CTA, 8-12 tags, 1 s
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "wf/haiku-4.5",
+                    "model": settings["model"],
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 1000,
+                    "max_tokens": 2000,
                     "stream": False,
                 },
             )
@@ -383,7 +383,7 @@ Rules: title 60-70 chars with emoji, desc 2-3 sentences with CTA, 8-12 tags, 1 s
     except json.JSONDecodeError as e:
         log.warning(f"AI batch JSON parse failed: {e} — content was: {content[:200]}")
     except Exception as e:
-        log.warning(f"AI batch suggestion failed: {e}")
+        log.warning(f"AI batch suggestion failed: {type(e).__name__}: {e}")
 
     return None
 
@@ -561,11 +561,20 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
         ai_results = await _ai_batch_generate_suggestions(videos_for_ai, niche, channel.name, db)
 
     # Build AI lookup: vid_id -> suggestion
+    # AI often returns fake IDs (e.g. "relaxation_001") instead of actual video IDs
+    # So we match by: 1) exact ID, 2) index position as fallback
     ai_lookup = {}
     if ai_results:
-        for r in ai_results:
-            if isinstance(r, dict) and r.get("id"):
-                ai_lookup[r["id"]] = r
+        for i, r in enumerate(ai_results):
+            if isinstance(r, dict):
+                rid = r.get("id", "")
+                if rid:
+                    ai_lookup[rid] = r
+                # Also map by actual video ID from videos_for_ai (index-based fallback)
+                if i < len(videos_for_ai):
+                    real_id = videos_for_ai[i]["id"]
+                    if real_id not in ai_lookup:
+                        ai_lookup[real_id] = r
 
     # Build actions
     actions = []

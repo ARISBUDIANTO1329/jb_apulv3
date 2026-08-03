@@ -317,76 +317,6 @@ async def test_connection(data: TestConnectionRequest, db: AsyncSession = Depend
 
 # ── Helper: Generate AI suggestions (BATCH — 1 call for all videos) ──
 
-async def _ai_batch_generate_suggestions(videos_data, niche, channel_name, db):
-    """Use 1 AI call to generate suggestions for multiple videos at once."""
-
-    # Load settings
-    result = await db.execute(text("SELECT provider, base_url, api_key, model FROM ai_settings ORDER BY id LIMIT 1"))
-    settings = result.mappings().first()
-    if not settings or not settings.get("api_key"):
-        return None
-
-    # Build batch prompt
-    video_list = ""
-    for i, v in enumerate(videos_data):
-        video_list += f"\nVideo {i+1} (id: {v['id']}):\n  Title: \"{v['title']}\"\n  Views: {v['views']}\n"
-
-    prompt = f"""YouTube SEO expert. Channel "{channel_name}" niche {niche}.
-Buatkan saran SEO untuk SEMUA video ini:
-{video_list}
-
-Return JSON array:
-[{{"id":"video_id","titles":["A","B","C"],"desc":"...","tags":["t1"],"reason":"..."}}]
-
-Rules: title 60-70 chars with emoji, desc 2-3 sentences with CTA, 8-12 tags, 1 sentence reason."""
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{settings['base_url']}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings['api_key']}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings["model"],
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 2000,
-                    "stream": False,
-                },
-            )
-
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                content = content.strip()
-
-                # Extract JSON from markdown code blocks or plain text
-                import re
-                # Try to find JSON array in code block
-                json_match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', content, re.DOTALL)
-                if json_match:
-                    content = json_match.group(1)
-                else:
-                    # Try to find JSON array directly
-                    json_match = re.search(r'\[.*\]', content, re.DOTALL)
-                    if json_match:
-                        content = json_match.group(0)
-
-                result = json.loads(content)
-                if isinstance(result, list):
-                    return result
-                elif isinstance(result, dict) and "videos" in result:
-                    return result["videos"]
-                elif isinstance(result, dict):
-                    return [result]
-    except json.JSONDecodeError as e:
-        log.warning(f"AI batch JSON parse failed: {e} — content was: {content[:200]}")
-    except Exception as e:
-        log.warning(f"AI batch suggestion failed: {type(e).__name__}: {e}")
-
-    return None
-
 @router.post("/analyze/{channel_id}")
 async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
     """Analyze channel with REAL YouTube data — pull from YouTube API first."""
@@ -539,42 +469,7 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
     # Limit to top 5 issues
     top_issues = all_open[:5]
 
-    # Collect video data for batch AI call
-    niche = channel.niche or "nature"
-    videos_for_ai = []
-    issue_map = {}  # vid_id -> issue
-    for issue in top_issues:
-        vid_id = issue["filename"]
-        yt_match = next((v for v in yt_videos if v["video_id"] == vid_id), None)
-        if yt_match:
-            videos_for_ai.append({
-                "id": vid_id,
-                "title": yt_match["title"],
-                "views": yt_match["view_count"],
-                "tags": yt_match.get("tags", [])[:5],
-            })
-        issue_map[vid_id] = issue
-
-    # Batch AI call — 1 call for all videos
-    ai_results = None
-    if videos_for_ai:
-        ai_results = await _ai_batch_generate_suggestions(videos_for_ai, niche, channel.name, db)
-
-    # Build AI lookup: vid_id -> suggestion
-    # AI often returns fake IDs (e.g. "relaxation_001") instead of actual video IDs
-    # So we match by: 1) exact ID, 2) index position as fallback
-    ai_lookup = {}
-    if ai_results:
-        for i, r in enumerate(ai_results):
-            if isinstance(r, dict):
-                rid = r.get("id", "")
-                if rid:
-                    ai_lookup[rid] = r
-                # Also map by actual video ID from videos_for_ai (index-based fallback)
-                if i < len(videos_for_ai):
-                    real_id = videos_for_ai[i]["id"]
-                    if real_id not in ai_lookup:
-                        ai_lookup[real_id] = r
+    # No AI suggestions — just use video data
 
     # Build actions
     actions = []
@@ -584,18 +479,6 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
         current_title = yt_match["title"] if yt_match else vid_id
         current_views = yt_match["view_count"] if yt_match else 0
 
-        ai = ai_lookup.get(vid_id)
-        if ai:
-            suggested_titles = ai.get("titles", [current_title])
-            suggested_desc = ai.get("desc", "")
-            suggested_tags = ai.get("tags", [])
-            reasoning = ai.get("reason", "")
-        else:
-            suggested_titles = [current_title]
-            suggested_desc = ""
-            suggested_tags = []
-            reasoning = ""
-
         actions.append({
             "issue_id": issue["id"],
             "type": issue["issue_type"],
@@ -604,10 +487,6 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
             "current_title": current_title,
             "current_views": current_views,
             "description": issue["description"],
-            "suggested_titles": suggested_titles,
-            "suggested_description": suggested_desc,
-            "suggested_tags": suggested_tags,
-            "reasoning": reasoning,
         })
 
     # 10. Update context + cache results

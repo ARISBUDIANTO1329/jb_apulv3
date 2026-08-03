@@ -620,17 +620,26 @@ async def get_performance(
 
     videos = []
     for r in rows:
+        engagement = r.ctr
+        alert = "low" if engagement < 1.0 else "medium" if engagement < 2.0 else "high"
+        recommendation = ""
+        if alert == "low":
+            recommendation = "⚠️ Low engagement. Consider changing thumbnail or title."
+        elif alert == "medium":
+            recommendation = "📊 Medium engagement. Test new thumbnail design."
+        
         videos.append({
             "video_id": r.video_id,
             "title": r.video_title,
             "thumbnail_url": r.thumbnail_url,
             "impressions": r.impressions,
-            "ctr": r.ctr,
+            "engagement": round(engagement, 2),
             "views": r.views,
             "watch_minutes": round(r.watch_minutes, 1),
             "avg_view_percentage": r.avg_view_percentage,
-            "subs_gained": r.subs_gained,
             "likes": r.likes,
+            "engagement_alert": alert,
+            "recommendation": recommendation,
             "youtube_url": f"https://youtube.com/watch?v={r.video_id}",
         })
 

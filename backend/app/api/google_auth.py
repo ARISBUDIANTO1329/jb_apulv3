@@ -23,6 +23,9 @@ REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https://jb1.apul.my.id/api
 SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+    "https://www.googleapis.com/auth/yt-analytics-monetary.readonly",
 ]
 
 

@@ -315,13 +315,89 @@ async def test_connection(data: TestConnectionRequest, db: AsyncSession = Depend
         return {"success": False, "error": str(e)[:200]}
 
 
-# ── Analyze Channel (Context-Aware) ──────────────────────────
+# ── Helper: Generate AI suggestions ─────────────────────────
+
+async def _ai_generate_suggestions(current_title, current_desc, current_tags, current_views, niche, channel_name, db):
+    """Use AI to generate SEO-optimized title/desc/tags suggestions."""
+    import re
+
+    # Load settings
+    result = await db.execute(text("SELECT provider, base_url, api_key, model FROM ai_settings ORDER BY id LIMIT 1"))
+    settings = result.mappings().first()
+    if not settings or not settings.get("api_key"):
+        return None  # Fallback to template
+
+    prompt = f"""Kamu adalah YouTube SEO expert. Analisis video ini dan buatkan saran yang LEBIH BAIK.
+
+VIDEO SAAT INI:
+- Title: "{current_title}"
+- Description: "{current_desc[:200]}"
+- Tags: {current_tags[:10]}
+- Views: {current_views}
+- Channel: {channel_name}
+- Niche: {niche}
+
+ATURAN:
+1. Judul harus SEO-friendly, menarik klik, 60-70 karakter
+2. Gunakan keyword yang dicari orang (bukan generic)
+3. Tambahkan emoji di awal judul (1-2 emoji)
+4. Description harus 3-4 kalimat, keyword-rich, ada CTA
+5. Tags harus 10-15 tag relevan yang dicari orang
+
+OUTPUT JSON:
+{{
+  "titles": ["Judul A", "Judul B", "Judul C"],
+  "description": "Description yang SEO-friendly...",
+  "tags": ["tag1", "tag2", ...],
+  "reasoning": "Kenapa judul ini lebih baik..."
+}}"""
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{settings['base_url']}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings['api_key']}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "wf/haiku-4.5",  # Use fast model for suggestions
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 300,
+                    "stream": False,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+
+                # Try parse JSON from response
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0]
+                elif "```" in content:
+                    content = content.split("```")[1].split("```")[0]
+
+                result = json.loads(content.strip())
+
+                return {
+                    "titles": result.get("titles", []),
+                    "description": result.get("description", ""),
+                    "tags": result.get("tags", []),
+                    "reasoning": result.get("reasoning", ""),
+                }
+    except Exception as e:
+        log.warning(f"AI suggestion generation failed: {e}")
+
+    return None  # Fallback
 
 @router.post("/analyze/{channel_id}")
 async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
-    """Analyze channel with context awareness — skip already-fixed items."""
+    """Analyze channel with REAL YouTube data — pull from YouTube API first."""
     from app.models.channel import Channel
     from app.models.media import MediaItem
+    import httpx
 
     # Get channel
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
@@ -329,64 +405,123 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    # 1. Load existing fixes (DO NOT repeat)
+    # 1. Pull real data from YouTube API
+    yt_videos = []
+    yt_analytics = {}
+    channel_stats = {}
+
+    if channel.access_token and channel.youtube_channel_id:
+        try:
+            # Try to get videos via internal API call
+            from app.api.youtube_api import _get_youtube_service
+            youtube, creds = _get_youtube_service(channel)
+
+            # Get channel stats
+            ch_resp = youtube.channels().list(part="statistics", id=channel.youtube_channel_id).execute()
+            if ch_resp.get("items"):
+                stats = ch_resp["items"][0]["statistics"]
+                channel_stats = {
+                    "subscribers": int(stats.get("subscriberCount", 0)),
+                    "total_views": int(stats.get("viewCount", 0)),
+                    "total_videos": int(stats.get("videoCount", 0)),
+                }
+
+            # Get videos list
+            pl_resp = youtube.channels().list(part="contentDetails", id=channel.youtube_channel_id).execute()
+            if pl_resp.get("items"):
+                uploads_pid = pl_resp["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+                pl_items = youtube.playlistItems().list(part="snippet,contentDetails", playlistId=uploads_pid, maxResults=20).execute()
+                vid_ids = [i["contentDetails"]["videoId"] for i in pl_items.get("items", [])]
+
+                if vid_ids:
+                    vid_resp = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
+                    for v in vid_resp.get("items", []):
+                        s = v.get("statistics", {})
+                        sn = v.get("snippet", {})
+                        yt_videos.append({
+                            "video_id": v["id"],
+                            "title": sn.get("title", ""),
+                            "description": sn.get("description", "")[:200],
+                            "tags": sn.get("tags", []),
+                            "published_at": sn.get("publishedAt", ""),
+                            "view_count": int(s.get("viewCount", 0)),
+                            "like_count": int(s.get("likeCount", 0)),
+                            "comment_count": int(s.get("commentCount", 0)),
+                        })
+
+            # Update token if refreshed
+            if creds.token != channel.access_token:
+                channel.access_token = creds.token
+                await db.commit()
+
+        except Exception as e:
+            log.warning(f"YouTube API pull failed: {e}")
+
+    # 2. Load existing fixes (DO NOT repeat)
     fixes_result = await db.execute(text(
         "SELECT filename, fix_type, new_value, applied_at FROM ai_fixes WHERE channel_id = :cid AND status = 'applied' ORDER BY applied_at DESC"
     ), {"cid": channel_id})
     applied_fixes = [dict(r) for r in fixes_result.mappings().all()]
 
-    # 2. Load open issues
-    issues_result = await db.execute(text(
-        "SELECT * FROM ai_issues WHERE channel_id = :cid AND status = 'open' ORDER BY severity DESC, detected_at DESC"
-    ), {"cid": channel_id})
-    open_issues = [dict(r) for r in issues_result.mappings().all()]
-
-    # 3. Load context
-    ctx_result = await db.execute(text(
-        "SELECT * FROM ai_context WHERE channel_id = :cid"
-    ), {"cid": channel_id})
-    context = dict(ctx_result.mappings().first() or {})
-
-    # 4. Get videos
-    media_result = await db.execute(
-        select(MediaItem)
-        .where(MediaItem.channel_id == channel_id)
-        .where(MediaItem.asset_type.in_(["video", "upload_ready"]))
-        .order_by(MediaItem.created_at.desc())
-    )
-    media_items = media_result.scalars().all()
-
-    # 5. Build fixed set (skip these)
+    # 3. Build fixed set
     fixed_set = set()
     for fix in applied_fixes:
         fixed_set.add((fix["filename"], fix["fix_type"]))
 
-    # 6. Detect issues for videos NOT yet fixed
+    # 4. Detect issues from REAL YouTube data
     new_issues = []
-    for item in media_items:
-        filename = item.filename
-        name = item.original_name or filename
-        stem = name.rsplit(".", 1)[0] if "." in name else name
+    for vid in yt_videos:
+        vid_id = vid["video_id"]
+        title = vid["title"]
+        views = vid["view_count"]
+        likes = vid["like_count"]
 
-        # Check title quality (simple heuristic)
+        # Already fixed this video's title?
+        if (vid_id, "title") in fixed_set:
+            continue
+
+        # Detect bad title
         is_bad_title = (
-            len(stem) < 10
-            or stem.startswith("final_")
-            or stem.startswith("UPL")
-            or stem.startswith("HEALIN")
-            or "_" in stem
-            or stem == stem.upper()
+            len(title) < 15
+            or title.startswith("final_")
+            or title.startswith("UPL")
+            or "_" in title
+            or title == title.upper()
+            or not any(c in title for c in "aeiouAEIOU")  # no vowels = code/filename
         )
 
-        if is_bad_title and (filename, "title") not in fixed_set:
+        if is_bad_title:
             new_issues.append({
-                "filename": filename,
+                "filename": vid_id,
                 "issue_type": "bad_title",
                 "severity": "high",
-                "description": f"Title '{stem}' is not SEO-friendly",
+                "description": f"Title '{title[:50]}' is not SEO-friendly ({views} views)",
             })
 
-    # 7. Save new issues to DB (upsert — don't duplicate)
+        # Detect low engagement
+        if views > 10 and likes == 0:
+            new_issues.append({
+                "filename": vid_id,
+                "issue_type": "low_engagement",
+                "severity": "medium",
+                "description": f"Video '{title[:40]}' has {views} views but 0 likes — poor engagement",
+            })
+
+        # Detect dead videos (published > 7 days, < 10 views)
+        from datetime import datetime, timedelta, timezone
+        try:
+            pub_date = datetime.fromisoformat(vid["published_at"].replace("Z", "+00:00"))
+            if pub_date < datetime.now(timezone.utc) - timedelta(days=7) and views < 10:
+                new_issues.append({
+                    "filename": vid_id,
+                    "issue_type": "dead_video",
+                    "severity": "high",
+                    "description": f"Video '{title[:40]}' has only {views} views after 7+ days — needs optimization",
+                })
+        except:
+            pass
+
+    # 5. Save new issues to DB (upsert)
     for issue in new_issues:
         existing = await db.execute(text(
             "SELECT id FROM ai_issues WHERE channel_id = :cid AND filename = :fn AND issue_type = :it AND status = 'open'"
@@ -399,43 +534,65 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
 
-    # 8. Reload all open issues
+    # 6. Reload all open issues
     issues_result = await db.execute(text(
         "SELECT * FROM ai_issues WHERE channel_id = :cid AND status = 'open' ORDER BY severity DESC"
     ), {"cid": channel_id})
     all_open = [dict(r) for r in issues_result.mappings().all()]
 
-    # 9. Generate suggestions for open issues
+    # 7. Generate suggestions for open issues using AI + REAL YouTube data
+    # Limit to top 5 issues to avoid timeout (AI calls are slow)
     actions = []
-    for issue in all_open:
-        stem = issue["filename"].rsplit(".", 1)[0] if "." in issue["filename"] else issue["filename"]
-        if stem.startswith("final_"):
-            stem = stem[6:]
-        if stem.startswith("HEALIN") or stem.startswith("UPL"):
-            stem = stem.replace("HEALIN-", "").replace("UPL", "")
+    for issue in all_open[:5]:
+        vid_id = issue["filename"]
+        # Find matching YouTube video for context
+        yt_match = next((v for v in yt_videos if v["video_id"] == vid_id), None)
+        current_title = yt_match["title"] if yt_match else vid_id
+        current_desc = yt_match["description"] if yt_match else ""
+        current_tags = yt_match.get("tags", []) if yt_match else []
+        current_views = yt_match["view_count"] if yt_match else 0
 
         niche = channel.niche or "nature"
-        niche_tags = {
-            "underwater": ["underwater", "ocean", "marine life", "coral reef", "relaxing", "4k"],
-            "nature": ["nature", "scenic", "landscape", "relaxation", "ambient", "4k"],
-            "music": ["music", "ambient", "chill", "lofi", "relaxing", "study music"],
-        }
-        base_tags = niche_tags.get(niche, niche_tags["nature"])
+
+        # Try AI-powered suggestions first
+        ai_suggestions = await _ai_generate_suggestions(
+            current_title, current_desc, current_tags, current_views,
+            niche, channel.name, db
+        )
+
+        if ai_suggestions and ai_suggestions.get("titles"):
+            # Use AI-generated suggestions
+            suggested_titles = ai_suggestions["titles"]
+            suggested_desc = ai_suggestions["description"]
+            suggested_tags = ai_suggestions["tags"]
+            reasoning = ai_suggestions.get("reasoning", "")
+        else:
+            # Fallback to template-based suggestions
+            suggested_titles = [
+                f"{current_title} — Relaxing Music for Sleep & Meditation",
+                f"🎵 {current_title} | Calming Music for Deep Relaxation",
+                f"{current_title} — Peaceful Music for Stress Relief",
+            ]
+            suggested_desc = f"Enjoy {current_title} — calming music perfect for relaxation, sleep, meditation, and focus. Subscribe to {channel.name} for more content every week!"
+            suggested_tags = ["relaxing music", "sleep music", "calming music", "meditation music", "ambient music", "stress relief", niche]
+            reasoning = ""
+
+        # Generate thumbnail prompt
+        thumbnail_prompt = f"Create a YouTube thumbnail for '{current_title[:50]}' — vibrant colors, cinematic lighting, 4K quality, YouTube thumbnail style, bold minimal text, eye-catching composition"
 
         actions.append({
             "issue_id": issue["id"],
             "type": issue["issue_type"],
             "severity": issue["severity"],
             "filename": issue["filename"],
+            "current_title": current_title,
+            "current_views": current_views,
             "description": issue["description"],
-            "suggested_titles": [
-                f"{stem} — 4K Relaxing Video for Sleep & Meditation",
-                f"Beautiful {stem} 🌊 Calming Nature Ambience",
-                f"{stem} | 10 Hours of Pure Relaxation",
-            ],
-            "suggested_description": f"Experience the beauty of {stem} in stunning 4K quality. Perfect for relaxation, meditation, study, and sleep. Subscribe for more calming content!",
-            "suggested_tags": base_tags + [stem.lower(), "relaxing video", "sleep"],
-            "thumbnail_prompt": f"Stunning {stem} scene, vibrant colors, cinematic lighting, 4K ultra detailed, photorealistic, calming atmosphere",
+            "suggested_titles": suggested_titles,
+            "suggested_description": suggested_desc,
+            "suggested_tags": suggested_tags,
+            "thumbnail_prompt": thumbnail_prompt,
+            "reasoning": reasoning,
         })
 
     # 10. Update context

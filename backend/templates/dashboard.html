@@ -97,8 +97,14 @@
           <div class="flex items-start gap-3 mb-3">
             <span style="font-size:16px" x-text="action.severity === 'high' ? '🔴' : '🟡'"></span>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-bold text-slate-900" x-text="action.filename"></div>
+              <div class="text-sm font-bold text-slate-900" x-text="action.current_title || action.filename"></div>
               <div class="text-xs text-slate-600 mt-0.5" x-text="action.description"></div>
+              <div class="text-[11px] text-slate-400 mt-0.5" x-show="action.current_views !== undefined">
+                <span x-text="(action.current_views || 0) + ' views'"></span>
+              </div>
+              <div x-show="action.reasoning" class="text-[11px] text-indigo-600 mt-1 p-2 rounded-lg bg-indigo-50 border border-indigo-100">
+                💡 <span x-text="action.reasoning"></span>
+              </div>
             </div>
           </div>
 
@@ -216,14 +222,13 @@
         <thead>
           <tr>
             <th>Channel</th>
+            <th>Token</th>
             <th>Status</th>
             <th>Monetization</th>
             <th>Subs</th>
             <th>Views</th>
             <th>Videos</th>
-            <th>CTR</th>
             <th>AI Score</th>
-            <th>Trend</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -238,6 +243,12 @@
                     <div class="text-sm font-bold text-slate-900" x-text="ch.name"></div>
                     <div class="text-[11px] text-slate-400" x-text="ch.niche || '-'"></div>
                   </div>
+                </div>
+              </td>
+              <td>
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full" :class="isTokenValid(ch) ? 'bg-emerald-500' : 'bg-rose-500'"></span>
+                  <span class="text-[11px] font-semibold" :class="isTokenValid(ch) ? 'text-emerald-600' : 'text-rose-600'" x-text="isTokenValid(ch) ? 'Connected' : 'Expired'"></span>
                 </div>
               </td>
               <td>
@@ -256,9 +267,6 @@
                 <div class="text-sm font-semibold" x-text="ch.video_count"></div>
               </td>
               <td>
-                <div class="text-sm font-bold" :class="ch.ctr >= 3 ? 'text-emerald-600' : ch.ctr >= 2 ? 'text-amber-600' : 'text-rose-600'" x-text="ch.ctr + '%'"></div>
-              </td>
-              <td>
                 <div class="flex items-center gap-2">
                   <div class="w-10 h-1.5 rounded-full bg-slate-100 overflow-hidden">
                     <div class="h-full rounded-full" :class="ch.aiScore >= 70 ? 'bg-emerald-500' : ch.aiScore >= 40 ? 'bg-amber-500' : 'bg-rose-500'" :style="'width:' + ch.aiScore + '%'"></div>
@@ -267,14 +275,11 @@
                 </div>
               </td>
               <td>
-                <span class="stat-change text-[10px] py-0.5 px-2" :class="ch.trend === 'up' ? 'up' : ch.trend === 'down' ? 'down' : 'flat'">
-                  <span x-text="ch.trend === 'up' ? '↑' : ch.trend === 'down' ? '↓' : '→'"></span>
-                  <span x-text="ch.trendLabel"></span>
-                </span>
-              </td>
-              <td>
                 <div class="flex gap-1">
-                  <a :href="'/?channel=' + ch.id" class="btn btn-sm">Detail</a>
+                  <button @click="syncYouTube(ch.id)" class="btn btn-sm" :disabled="!isTokenValid(ch)">📊 Sync</button>
+                  <button @click="reconnectChannel(ch.id)" class="btn btn-sm" :class="isTokenValid(ch) ? '' : 'btn-primary'">
+                    <span x-text="isTokenValid(ch) ? '🔄 Refresh' : '🔌 Reconnect'"></span>
+                  </button>
                 </div>
               </td>
             </tr>
@@ -380,6 +385,8 @@ function analyticsPage() {
           aiScore: ch.aiScore || Math.floor(Math.random() * 40 + 50),
           trend: ch.trend || (Math.random() > 0.5 ? 'up' : 'flat'),
           trendLabel: ch.trendLabel || 'stable',
+          token_expires_at: ch.token_expires_at,
+          access_token: ch.access_token,
         }));
       } catch(e) { console.error('[Analytics] loadChannels error:', e); }
     },
@@ -544,6 +551,37 @@ function analyticsPage() {
         var mins = String(d.getMinutes()).padStart(2, '0');
         return day + ' ' + month + ' ' + hours + ':' + mins;
       } catch(e) { return isoStr; }
+    },
+
+    isTokenValid(ch) {
+      if (!ch.access_token) return false;
+      if (!ch.token_expires_at) return true; // has token but no expiry = might be valid
+      try {
+        return new Date(ch.token_expires_at) > new Date();
+      } catch(e) { return false; }
+    },
+
+    async reconnectChannel(channelId) {
+      try {
+        const result = await api('/auth/google/connect/' + channelId);
+        if (result.auth_url) {
+          window.open(result.auth_url, '_blank', 'width=600,height=700');
+        }
+      } catch(e) {
+        alert('Gagal membuka halaman authorize: ' + e.message);
+      }
+    },
+
+    async syncYouTube(channelId) {
+      try {
+        const result = await api('/youtube/channel-info/' + channelId);
+        if (result.success) {
+          await this.loadChannels();
+          this.applyFilter();
+        }
+      } catch(e) {
+        alert('Sync gagal: ' + (e.message || 'Token expired, klik Reconnect dulu'));
+      }
     },
 
     fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(1) + 'M' : n >= 1e3 ? (n/1e3).toFixed(1) + 'K' : String(n); },

@@ -704,3 +704,83 @@ async def get_video_trend(channel_id: int, video_id: str, days: int = 7, db: Asy
         "trend": trend,
         "recommendation": "📈 Growing — keep this style" if trend == "up" else "📉 Declining — change thumbnail" if trend == "down" else "➡️ Stable — hold strategy",
     }
+
+
+@router.get("/best-upload-time/{channel_id}")
+async def get_best_upload_time(channel_id: int, db: AsyncSession = Depends(get_db)):
+    """Analyze best day/hour to upload based on high-engagement videos."""
+    result = await db.execute(select(Channel).where(Channel.id == channel_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    youtube, _ = _get_youtube_service(channel)
+
+    try:
+        # Get videos with highest engagement
+        rows = await db.execute(text("""
+            SELECT video_id FROM video_analytics
+            WHERE channel_id = :cid
+            ORDER BY ctr DESC
+            LIMIT 10
+        """), {"cid": channel_id})
+        
+        video_ids = [r[0] for r in rows]
+        if not video_ids:
+            return {"success": False, "error": "No video data", "videos": []}
+
+        # Get video details including publishedAt
+        vids_resp = youtube.videos().list(
+            part="snippet",
+            id=",".join(video_ids[:10]),
+        ).execute()
+
+        # Analyze publish times
+        publish_times = []
+        for item in vids_resp.get("items", []):
+            pub_at = item["snippet"].get("publishedAt", "")
+            if pub_at:
+                from datetime import datetime
+                dt = datetime.fromisoformat(pub_at.replace("Z", "+00:00"))
+                day_name = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][dt.weekday()]
+                hour = dt.hour
+                publish_times.append({
+                    "day": day_name,
+                    "hour": hour,
+                    "date": pub_at[:10],
+                })
+
+        if not publish_times:
+            return {"success": False, "error": "No publish times found"}
+
+        # Count by day
+        day_counts = {}
+        for pt in publish_times:
+            day = pt["day"]
+            day_counts[day] = day_counts.get(day, 0) + 1
+
+        best_day = max(day_counts.items(), key=lambda x: x[1])[0]
+
+        # Count by hour
+        hour_counts = {}
+        for pt in publish_times:
+            hour = pt["hour"]
+            hour_counts[hour] = hour_counts.get(hour, 0) + 1
+
+        best_hour = max(hour_counts.items(), key=lambda x: x[1])[0]
+
+        return {
+            "success": True,
+            "channel": channel.name,
+            "analysis_videos": len(publish_times),
+            "best_day": best_day,
+            "best_hour": best_hour,
+            "day_distribution": day_counts,
+            "hour_distribution": hour_counts,
+            "recommendation": f"📅 Upload on {best_day} at {best_hour:02d}:00 for best engagement",
+            "publish_times": publish_times,
+        }
+
+    except Exception as e:
+        log.error(f"Best upload time error: {e}")
+        raise HTTPException(status_code=500, detail=str(e)[:200])

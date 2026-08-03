@@ -315,42 +315,30 @@ async def test_connection(data: TestConnectionRequest, db: AsyncSession = Depend
         return {"success": False, "error": str(e)[:200]}
 
 
-# ── Helper: Generate AI suggestions ─────────────────────────
+# ── Helper: Generate AI suggestions (BATCH — 1 call for all videos) ──
 
-async def _ai_generate_suggestions(current_title, current_desc, current_tags, current_views, niche, channel_name, db):
-    """Use AI to generate SEO-optimized title/desc/tags suggestions."""
-    import re
+async def _ai_batch_generate_suggestions(videos_data, niche, channel_name, db):
+    """Use 1 AI call to generate suggestions for multiple videos at once."""
 
     # Load settings
     result = await db.execute(text("SELECT provider, base_url, api_key, model FROM ai_settings ORDER BY id LIMIT 1"))
     settings = result.mappings().first()
     if not settings or not settings.get("api_key"):
-        return None  # Fallback to template
+        return None
 
-    prompt = f"""Kamu adalah YouTube SEO expert. Analisis video ini dan buatkan saran yang LEBIH BAIK.
+    # Build batch prompt
+    video_list = ""
+    for i, v in enumerate(videos_data):
+        video_list += f"\nVideo {i+1} (id: {v['id']}):\n  Title: \"{v['title']}\"\n  Views: {v['views']}\n"
 
-VIDEO SAAT INI:
-- Title: "{current_title}"
-- Description: "{current_desc[:200]}"
-- Tags: {current_tags[:10]}
-- Views: {current_views}
-- Channel: {channel_name}
-- Niche: {niche}
+    prompt = f"""YouTube SEO expert. Channel "{channel_name}" niche {niche}.
+Buatkan saran SEO untuk SEMUA video ini:
+{video_list}
 
-ATURAN:
-1. Judul harus SEO-friendly, menarik klik, 60-70 karakter
-2. Gunakan keyword yang dicari orang (bukan generic)
-3. Tambahkan emoji di awal judul (1-2 emoji)
-4. Description harus 3-4 kalimat, keyword-rich, ada CTA
-5. Tags harus 10-15 tag relevan yang dicari orang
+Return JSON array:
+[{{"id":"video_id","titles":["A","B","C"],"desc":"...","tags":["t1"],"reason":"..."}}]
 
-OUTPUT JSON:
-{{
-  "titles": ["Judul A", "Judul B", "Judul C"],
-  "description": "Description yang SEO-friendly...",
-  "tags": ["tag1", "tag2", ...],
-  "reasoning": "Kenapa judul ini lebih baik..."
-}}"""
+Rules: title 60-70 chars with emoji, desc 2-3 sentences with CTA, 8-12 tags, 1 sentence reason."""
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -361,36 +349,43 @@ OUTPUT JSON:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "wf/haiku-4.5",  # Use fast model for suggestions
+                    "model": "wf/haiku-4.5",
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
+                    "max_tokens": 1000,
                     "stream": False,
-                    "response_format": {"type": "json_object"},
                 },
             )
 
             if resp.status_code == 200:
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
+                content = content.strip()
 
-                # Try parse JSON from response
-                if "```json" in content:
-                    content = content.split("```json")[1].split("```")[0]
-                elif "```" in content:
-                    content = content.split("```")[1].split("```")[0]
+                # Extract JSON from markdown code blocks or plain text
+                import re
+                # Try to find JSON array in code block
+                json_match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', content, re.DOTALL)
+                if json_match:
+                    content = json_match.group(1)
+                else:
+                    # Try to find JSON array directly
+                    json_match = re.search(r'\[.*\]', content, re.DOTALL)
+                    if json_match:
+                        content = json_match.group(0)
 
-                result = json.loads(content.strip())
-
-                return {
-                    "titles": result.get("titles", []),
-                    "description": result.get("description", ""),
-                    "tags": result.get("tags", []),
-                    "reasoning": result.get("reasoning", ""),
-                }
+                result = json.loads(content)
+                if isinstance(result, list):
+                    return result
+                elif isinstance(result, dict) and "videos" in result:
+                    return result["videos"]
+                elif isinstance(result, dict):
+                    return [result]
+    except json.JSONDecodeError as e:
+        log.warning(f"AI batch JSON parse failed: {e} — content was: {content[:200]}")
     except Exception as e:
-        log.warning(f"AI suggestion generation failed: {e}")
+        log.warning(f"AI batch suggestion failed: {e}")
 
-    return None  # Fallback
+    return None
 
 @router.post("/analyze/{channel_id}")
 async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
@@ -541,44 +536,56 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
     all_open = [dict(r) for r in issues_result.mappings().all()]
 
     # 7. Generate suggestions for open issues using AI + REAL YouTube data
-    # Limit to top 5 issues to avoid timeout (AI calls are slow)
-    actions = []
-    for issue in all_open[:5]:
+    # Limit to top 5 issues
+    top_issues = all_open[:5]
+
+    # Collect video data for batch AI call
+    niche = channel.niche or "nature"
+    videos_for_ai = []
+    issue_map = {}  # vid_id -> issue
+    for issue in top_issues:
         vid_id = issue["filename"]
-        # Find matching YouTube video for context
+        yt_match = next((v for v in yt_videos if v["video_id"] == vid_id), None)
+        if yt_match:
+            videos_for_ai.append({
+                "id": vid_id,
+                "title": yt_match["title"],
+                "views": yt_match["view_count"],
+                "tags": yt_match.get("tags", [])[:5],
+            })
+        issue_map[vid_id] = issue
+
+    # Batch AI call — 1 call for all videos
+    ai_results = None
+    if videos_for_ai:
+        ai_results = await _ai_batch_generate_suggestions(videos_for_ai, niche, channel.name, db)
+
+    # Build AI lookup: vid_id -> suggestion
+    ai_lookup = {}
+    if ai_results:
+        for r in ai_results:
+            if isinstance(r, dict) and r.get("id"):
+                ai_lookup[r["id"]] = r
+
+    # Build actions
+    actions = []
+    for issue in top_issues:
+        vid_id = issue["filename"]
         yt_match = next((v for v in yt_videos if v["video_id"] == vid_id), None)
         current_title = yt_match["title"] if yt_match else vid_id
-        current_desc = yt_match["description"] if yt_match else ""
-        current_tags = yt_match.get("tags", []) if yt_match else []
         current_views = yt_match["view_count"] if yt_match else 0
 
-        niche = channel.niche or "nature"
-
-        # Try AI-powered suggestions first
-        ai_suggestions = await _ai_generate_suggestions(
-            current_title, current_desc, current_tags, current_views,
-            niche, channel.name, db
-        )
-
-        if ai_suggestions and ai_suggestions.get("titles"):
-            # Use AI-generated suggestions
-            suggested_titles = ai_suggestions["titles"]
-            suggested_desc = ai_suggestions["description"]
-            suggested_tags = ai_suggestions["tags"]
-            reasoning = ai_suggestions.get("reasoning", "")
+        ai = ai_lookup.get(vid_id)
+        if ai:
+            suggested_titles = ai.get("titles", [current_title])
+            suggested_desc = ai.get("desc", "")
+            suggested_tags = ai.get("tags", [])
+            reasoning = ai.get("reason", "")
         else:
-            # Fallback to template-based suggestions
-            suggested_titles = [
-                f"{current_title} — Relaxing Music for Sleep & Meditation",
-                f"🎵 {current_title} | Calming Music for Deep Relaxation",
-                f"{current_title} — Peaceful Music for Stress Relief",
-            ]
-            suggested_desc = f"Enjoy {current_title} — calming music perfect for relaxation, sleep, meditation, and focus. Subscribe to {channel.name} for more content every week!"
-            suggested_tags = ["relaxing music", "sleep music", "calming music", "meditation music", "ambient music", "stress relief", niche]
+            suggested_titles = [current_title]
+            suggested_desc = ""
+            suggested_tags = []
             reasoning = ""
-
-        # Generate thumbnail prompt
-        thumbnail_prompt = f"Create a YouTube thumbnail for '{current_title[:50]}' — vibrant colors, cinematic lighting, 4K quality, YouTube thumbnail style, bold minimal text, eye-catching composition"
 
         actions.append({
             "issue_id": issue["id"],
@@ -591,25 +598,37 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
             "suggested_titles": suggested_titles,
             "suggested_description": suggested_desc,
             "suggested_tags": suggested_tags,
-            "thumbnail_prompt": thumbnail_prompt,
+            "thumbnail_prompt": f"Create a YouTube thumbnail for '{current_title[:50]}' — vibrant colors, cinematic lighting, 4K quality, bold text",
             "reasoning": reasoning,
         })
 
-    # 10. Update context
+    # 10. Update context + cache results
+    import json as _json
+    cached_data = _json.dumps({
+        "actions": actions,
+        "fixes_history": applied_fixes[:10],
+        "already_fixed": len(applied_fixes),
+        "open_issues": len(all_open),
+        "channel_name": channel.name,
+        "analyzed_at": datetime.now(timezone.utc).isoformat(),
+    })
+
     await db.execute(text(
-        """INSERT INTO ai_context (channel_id, last_analyze_at, total_issues_found, issues_fixed, issues_remaining, updated_at)
-           VALUES (:cid, NOW(), :total, :fixed, :remaining, NOW())
+        """INSERT INTO ai_context (channel_id, last_analyze_at, total_issues_found, issues_fixed, issues_remaining, last_recommendations, updated_at)
+           VALUES (:cid, NOW(), :total, :fixed, :remaining, CAST(:recs AS jsonb), NOW())
            ON CONFLICT (channel_id) DO UPDATE SET
                last_analyze_at = NOW(),
                total_issues_found = :total,
                issues_fixed = :fixed,
                issues_remaining = :remaining,
+               last_recommendations = CAST(:recs AS jsonb),
                updated_at = NOW()"""
     ), {
         "cid": channel_id,
         "total": len(applied_fixes) + len(all_open),
         "fixed": len(applied_fixes),
         "remaining": len(all_open),
+        "recs": cached_data,
     })
     await db.commit()
 
@@ -622,6 +641,38 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
         "actions": actions,
         "fixes_history": applied_fixes[:10],
     }
+
+
+# ── Load Cached Analysis ─────────────────────────────────────
+
+@router.get("/cached/{channel_id}")
+async def get_cached_analysis(channel_id: int, db: AsyncSession = Depends(get_db)):
+    """Load last cached analysis for a channel — no AI call needed."""
+    ctx_result = await db.execute(text(
+        "SELECT last_recommendations, last_analyze_at FROM ai_context WHERE channel_id = :cid"
+    ), {"cid": channel_id})
+    ctx = ctx_result.mappings().first()
+
+    if not ctx or not ctx.get("last_recommendations"):
+        return {"success": False, "message": "No cached analysis. Click Analyze first."}
+
+    import json as _json
+    cached = ctx["last_recommendations"]
+    if isinstance(cached, str):
+        cached = _json.loads(cached)
+
+    # Update fixes_history with current data
+    fixes_result = await db.execute(text(
+        "SELECT id, filename, fix_type, new_value, status, applied_at FROM ai_fixes WHERE channel_id = :cid ORDER BY applied_at DESC LIMIT 10"
+    ), {"cid": channel_id})
+    fixes = [dict(r) for r in fixes_result.mappings().all()]
+
+    cached["success"] = True
+    cached["cached"] = True
+    cached["last_analyze_at"] = str(ctx["last_analyze_at"]) if ctx["last_analyze_at"] else None
+    cached["fixes_history"] = fixes
+
+    return cached
 
 
 # ── Apply Fix ─────────────────────────────────────────────────

@@ -175,6 +175,7 @@
     <div x-show="!aiAnalyzing && !aiAnalyzed && selectedChannelId" class="text-center py-8">
       <div style="font-size:32px;margin-bottom:8px">🤖</div>
       <div class="text-sm text-slate-500">Klik "Analyze" untuk scan channel ini</div>
+      <div class="text-[11px] text-slate-400 mt-1" x-show="aiCachedAt">Terakhir dianalisa: <span x-text="aiCachedAt"></span></div>
     </div>
   </div>
 
@@ -349,6 +350,7 @@ function analyticsPage() {
     aiActions: [],
     aiFixes: [],
     aiOpenIssues: 0,
+    aiCachedAt: null,
 
     async init() {
       this.today = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -361,9 +363,13 @@ function analyticsPage() {
         this.aiActions = [];
         this.aiFixes = [];
         this.aiOpenIssues = 0;
+        this.loadCachedAnalysis();
       });
 
       this.selectedChannelId = activeChannelId;
+      if (this.selectedChannelId) {
+        this.loadCachedAnalysis();
+      }
       setInterval(() => this.loadSystem(), 30000);
     },
 
@@ -431,6 +437,27 @@ function analyticsPage() {
 
     // ── AI Functions ──
 
+    async loadCachedAnalysis() {
+      if (!this.selectedChannelId) return;
+      try {
+        const result = await api('/ai/cached/' + this.selectedChannelId);
+        if (result.success && result.actions) {
+          this.aiActions = (result.actions || []).map(a => ({
+            ...a,
+            _expanded: false,
+            _selectedTitle: 0,
+            _description: a.suggested_description || '',
+          }));
+          this.aiFixes = result.fixes_history || [];
+          this.aiOpenIssues = result.open_issues || 0;
+          this.aiAnalyzed = true;
+          this.aiCachedAt = result.last_analyze_at || null;
+        }
+      } catch(e) {
+        // No cache yet — that's fine
+      }
+    },
+
     async runAnalyze() {
       if (!this.selectedChannelId || this.aiAnalyzing) return;
       this.aiAnalyzing = true;
@@ -450,6 +477,7 @@ function analyticsPage() {
           this.aiFixes = result.fixes_history || [];
           this.aiOpenIssues = result.open_issues || 0;
           this.aiAnalyzed = true;
+          this.aiCachedAt = null;
         }
       } catch(e) {
         console.error('[AI] analyze error:', e);

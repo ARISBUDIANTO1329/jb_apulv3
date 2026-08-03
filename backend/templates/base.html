@@ -9,155 +9,262 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #f8fafc; color: #1e293b; font-family: 'Inter', sans-serif; }
+    body { background: #f1f5f9; color: #1e293b; font-family: 'Inter', sans-serif; }
     a { color: inherit; text-decoration: none; }
 
     /* Layout */
     .app { display: flex; min-height: 100vh; }
-    .sidebar { width: 260px; background: #fff; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; padding: 20px 14px; position: fixed; height: 100vh; overflow-y: auto; box-shadow: 2px 0 12px rgba(0,0,0,.04); }
-    .main { flex: 1; margin-left: 260px; display: flex; flex-direction: column; }
-    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; border-bottom: 1px solid #e2e8f0; background: #fff; position: sticky; top: 0; z-index: 40; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
-    .content { flex: 1; padding: 28px; overflow: auto; background: #f8fafc; }
+    .sidebar {
+      width: 260px; background: #0f172a; display: flex; flex-direction: column;
+      position: fixed; height: 100vh; overflow-y: auto; z-index: 50;
+      border-right: 1px solid rgba(255,255,255,.06);
+    }
+    .main { flex: 1; margin-left: 260px; display: flex; flex-direction: column; min-height: 100vh; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 32px; background: #fff; border-bottom: 1px solid #e2e8f0;
+      position: sticky; top: 0; z-index: 40;
+    }
+    .content { flex: 1; padding: 28px 32px; }
 
     /* Brand */
-    .brand { display: flex; align-items: center; gap: 12px; padding: 16px; margin-bottom: 24px; }
-    .logo { width: 42px; height: 42px; border-radius: 14px; background: linear-gradient(135deg, #2563eb, #7c3aed); display: grid; place-items: center; font-weight: 900; font-size: 16px; color: #fff; box-shadow: 0 4px 16px rgba(37,99,235,.3); }
-    .brand-text { font-size: 16px; font-weight: 800; color: #0f172a; }
-    .brand-sub { font-size: 11px; color: #94a3b8; font-weight: 600; }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 20px 20px 24px; }
+    .logo {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: grid; place-items: center; font-weight: 900; font-size: 14px; color: #fff;
+      box-shadow: 0 4px 16px rgba(99,102,241,.4);
+    }
+    .brand-text { font-size: 15px; font-weight: 800; color: #f1f5f9; letter-spacing: -.01em; }
+    .brand-sub { font-size: 10px; color: #64748b; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 
     /* Nav */
-    .nav-group { margin-bottom: 8px; }
-    .nav-label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; padding: 12px 12px 6px; }
-    .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; color: #64748b; margin-bottom: 2px; }
-    .nav-item:hover { background: #f1f5f9; color: #1e293b; }
-    .nav-item.active { background: linear-gradient(135deg, #eff6ff, #f5f3ff); color: #2563eb; border: 1px solid #bfdbfe; font-weight: 700; }
-    .nav-icon { width: 20px; text-align: center; font-size: 15px; }
+    .nav-section { margin-bottom: 4px; }
+    .nav-label {
+      font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase;
+      letter-spacing: .1em; padding: 16px 20px 8px;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 12px; padding: 9px 20px;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+      color: #94a3b8; margin: 1px 8px; border-radius: 10px;
+    }
+    .nav-item:hover { background: rgba(255,255,255,.06); color: #e2e8f0; }
+    .nav-item.active {
+      background: rgba(99,102,241,.15); color: #a5b4fc;
+      box-shadow: inset 0 0 0 1px rgba(99,102,241,.2);
+    }
+    .nav-icon { width: 20px; text-align: center; font-size: 15px; flex-shrink: 0; }
+    .nav-badge {
+      margin-left: auto; font-size: 10px; font-weight: 700; padding: 1px 7px;
+      border-radius: 10px; background: rgba(99,102,241,.2); color: #a5b4fc;
+    }
 
-    /* Channel Info */
-    .channel-box { margin-top: auto; padding: 16px; background: #f8fafc; border-radius: 14px; border: 1px solid #e2e8f0; }
-    .channel-box .label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; }
-    .channel-box .value { font-size: 24px; font-weight: 900; color: #0f172a; margin-top: 4px; }
-    .channel-box .sub { font-size: 11px; color: #94a3b8; }
+    /* Collapsible nav group */
+    .nav-group-toggle {
+      display: flex; align-items: center; gap: 12px; padding: 9px 20px;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+      color: #94a3b8; margin: 1px 8px; border-radius: 10px;
+      user-select: none;
+    }
+    .nav-group-toggle:hover { background: rgba(255,255,255,.06); color: #e2e8f0; }
+    .nav-group-toggle .chevron { margin-left: auto; font-size: 10px; transition: transform .2s; }
+    .nav-group-toggle.open .chevron { transform: rotate(90deg); }
+    .nav-group-items { overflow: hidden; transition: max-height .25s ease; }
+    .nav-group-items .nav-item { padding-left: 52px; font-size: 12px; }
+
+    /* Channel Selector */
+    .channel-selector {
+      margin: 0 12px 16px; padding: 12px 14px; border-radius: 12px;
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06);
+    }
+    .channel-selector label {
+      display: block; font-size: 10px; font-weight: 700; color: #64748b;
+      text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px;
+    }
+    .channel-selector select {
+      width: 100%; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px; padding: 7px 10px; color: #e2e8f0; font-size: 12px;
+      font-weight: 600; outline: none; cursor: pointer;
+    }
+    .channel-selector select option { background: #1e293b; color: #e2e8f0; }
+
+    /* Sidebar footer */
+    .sidebar-footer {
+      margin-top: auto; padding: 16px; border-top: 1px solid rgba(255,255,255,.06);
+    }
+    .sidebar-stat-row { display: flex; justify-content: space-between; padding: 4px 0; }
+    .sidebar-stat-label { font-size: 10px; color: #64748b; font-weight: 600; }
+    .sidebar-stat-value { font-size: 10px; color: #94a3b8; font-weight: 700; font-family: monospace; }
+    .sidebar-stat-bar { height: 3px; background: rgba(255,255,255,.08); border-radius: 2px; margin-top: 2px; overflow: hidden; }
+    .sidebar-stat-bar-fill { height: 100%; border-radius: 2px; transition: width .5s; }
+    .bar-green { background: #22c55e; }
+    .bar-amber { background: #f59e0b; }
+    .bar-red { background: #ef4444; }
 
     /* Topbar */
     .topbar-left { display: flex; align-items: center; gap: 16px; }
-    .topbar-right { display: flex; gap: 10px; }
-    .page-title { font-size: 18px; font-weight: 800; color: #0f172a; }
-    .ch-select { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
-    .ch-select .label { font-size: 11px; font-weight: 700; color: #64748b; }
-    .ch-select select { background: transparent; border: none; outline: none; color: #0f172a; font-weight: 700; font-size: 13px; cursor: pointer; }
+    .topbar-right { display: flex; gap: 10px; align-items: center; }
+    .page-title { font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: -.02em; }
 
     /* Buttons */
-    .btn { padding: 10px 18px; border-radius: 10px; border: 1px solid #dbeafe; background: #eff6ff; color: #2563eb; font-weight: 700; font-size: 13px; cursor: pointer; transition: all .2s; }
-    .btn:hover { background: #dbeafe; }
-    .btn-primary { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(37,99,235,.25); }
-    .btn-ghost { padding: 10px 18px; border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; font-weight: 700; font-size: 13px; cursor: pointer; }
-    .btn-danger { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #dc2626, #ef4444); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
-    .btn-success { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #059669, #10b981); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
-    .btn-sm { font-size: 11px; padding: 6px 12px; border-radius: 8px; }
+    .btn {
+      padding: 8px 16px; border-radius: 10px; border: 1px solid #e2e8f0;
+      background: #fff; color: #64748b; font-weight: 700; font-size: 12px;
+      cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .btn-primary {
+      padding: 8px 16px; border-radius: 10px; border: none;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
+      font-weight: 700; font-size: 12px; cursor: pointer;
+      box-shadow: 0 2px 8px rgba(99,102,241,.3);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-primary:hover { box-shadow: 0 4px 16px rgba(99,102,241,.4); }
+    .btn-ghost {
+      padding: 8px 16px; border-radius: 10px; border: 1px solid #e2e8f0;
+      background: transparent; color: #64748b; font-weight: 700; font-size: 12px; cursor: pointer;
+    }
+    .btn-danger {
+      padding: 8px 16px; border-radius: 10px; border: none;
+      background: linear-gradient(135deg, #dc2626, #ef4444); color: #fff;
+      font-weight: 700; font-size: 12px; cursor: pointer;
+    }
+    .btn-success {
+      padding: 8px 16px; border-radius: 10px; border: none;
+      background: linear-gradient(135deg, #059669, #10b981); color: #fff;
+      font-weight: 700; font-size: 12px; cursor: pointer;
+    }
+    .btn-sm { font-size: 11px; padding: 5px 12px; border-radius: 8px; }
 
     /* Cards */
-    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+    .card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 16px;
+      padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    }
 
     /* Stats */
     .stats-row { display: grid; gap: 16px; margin-bottom: 24px; }
     .stats-4 { grid-template-columns: repeat(4, 1fr); }
     .stats-3 { grid-template-columns: repeat(3, 1fr); }
-    .stat-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; position: relative; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
-    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed); }
-    .stat-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; }
-    .stat-value { font-size: 32px; font-weight: 900; margin-top: 8px; color: #0f172a; }
-    .stat-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+    .stats-5 { grid-template-columns: repeat(5, 1fr); }
+    .stat-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+      padding: 18px 20px; position: relative; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    }
+    .stat-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; }
+    .stat-value { font-size: 28px; font-weight: 900; margin-top: 6px; color: #0f172a; letter-spacing: -.02em; }
+    .stat-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .stat-change {
+      display: inline-flex; align-items: center; gap: 3px; font-size: 11px;
+      font-weight: 700; padding: 2px 8px; border-radius: 8px; margin-top: 6px;
+    }
+    .stat-change.up { background: #dcfce7; color: #166534; }
+    .stat-change.down { background: #fee2e2; color: #991b1b; }
+    .stat-change.flat { background: #f1f5f9; color: #64748b; }
 
     /* Progress */
-    .progress { width: 100%; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .progress { width: 100%; height: 5px; background: #f1f5f9; border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .progress-bar { height: 100%; border-radius: 3px; transition: width .5s ease; }
-    .bg-green { background: linear-gradient(90deg, #059669, #10b981); }
-    .bg-yellow { background: linear-gradient(90deg, #d97706, #f59e0b); }
-    .bg-red { background: linear-gradient(90deg, #dc2626, #ef4444); }
-    .bg-blue { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+    .bg-green { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .bg-yellow { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .bg-red { background: linear-gradient(90deg, #ef4444, #f87171); }
+    .bg-blue { background: linear-gradient(90deg, #6366f1, #818cf8); }
+    .bg-indigo { background: linear-gradient(90deg, #4f46e5, #6366f1); }
 
     /* Badges */
-    .badge { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; display: inline-block; }
+    .badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px; }
     .badge-active { background: #dcfce7; color: #166534; }
     .badge-pending { background: #fef3c7; color: #92400e; }
-    .badge-processing { background: #dbeafe; color: #1e40af; }
+    .badge-processing { background: #e0e7ff; color: #3730a3; }
     .badge-done { background: #dcfce7; color: #166534; }
     .badge-failed { background: #fee2e2; color: #991b1b; }
     .badge-running { background: #dcfce7; color: #166534; }
     .badge-stopped { background: #f1f5f9; color: #475569; }
     .badge-paused { background: #fef3c7; color: #92400e; }
-    .badge-scheduled { background: #dbeafe; color: #1e40af; }
-    .badge-key { background: #dcfce7; color: #166534; }
-    .badge-proxy { background: #dbeafe; color: #1e40af; }
+    .badge-scheduled { background: #e0e7ff; color: #3730a3; }
 
     /* Tables */
     table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; padding: 14px 16px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 2px solid #e2e8f0; background: #f8fafc; }
+    th {
+      text-align: left; padding: 12px 16px; font-size: 11px; font-weight: 700;
+      color: #64748b; text-transform: uppercase; letter-spacing: .06em;
+      border-bottom: 1px solid #e2e8f0; background: #f8fafc;
+    }
     td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
     tr:hover td { background: #f8fafc; }
 
     /* Grid */
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-    .grid-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
-
-    /* Channel Cards */
-    .ch-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; transition: all .3s; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
-    .ch-card:hover { border-color: #93c5fd; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.08); }
-    .ch-header { display: flex; align-items: center; gap: 14px; padding: 20px; }
-    .ch-avatar { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-weight: 900; font-size: 18px; color: #fff; }
-    .ch-name { font-weight: 700; font-size: 16px; color: #0f172a; }
-    .ch-id { font-size: 11px; color: #94a3b8; font-family: monospace; }
-    .ch-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; padding: 0 20px 16px; }
-    .ch-stat { background: #f8fafc; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #f1f5f9; }
-    .ch-stat .label { font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
-    .ch-stat .value { font-size: 18px; font-weight: 800; margin-top: 4px; color: #0f172a; }
-    .ch-actions { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 20px 20px; }
 
     /* Forms */
     .form-group { margin-bottom: 16px; }
     .form-group label { display: block; margin-bottom: 6px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
-    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px 14px; font-size: 13px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; color: #0f172a; outline: none; transition: border-color .2s; }
-    .form-group input:focus, .form-group select:focus { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
-    .form-group select option { background: #fff; color: #0f172a; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 10px 14px; font-size: 13px; background: #fff;
+      border: 1px solid #e2e8f0; border-radius: 10px; color: #0f172a;
+      outline: none; transition: border-color .2s, box-shadow .2s;
+    }
+    .form-group input:focus, .form-group select:focus {
+      border-color: #a5b4fc; box-shadow: 0 0 0 3px rgba(99,102,241,.1);
+    }
 
     /* Modal */
-    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.3); backdrop-filter: blur(4px); display: grid; place-items: center; z-index: 50; }
+    .modal {
+      position: fixed; inset: 0; background: rgba(15,23,42,.5); backdrop-filter: blur(4px);
+      display: grid; place-items: center; z-index: 100;
+    }
     .modal.hidden { display: none; }
-    .modal-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 28px; width: 100%; max-width: 500px; max-height: 85vh; overflow: auto; box-shadow: 0 24px 48px rgba(0,0,0,.15); }
+    .modal-box {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 20px;
+      padding: 28px; width: 100%; max-width: 500px; max-height: 85vh; overflow: auto;
+      box-shadow: 0 24px 48px rgba(0,0,0,.15);
+    }
     .modal-box h3 { font-size: 18px; font-weight: 800; margin-bottom: 20px; color: #0f172a; }
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
 
     /* Section */
-    .section { padding: 20px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
-    .section-title { font-size: 12px; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 14px; }
-
-    /* Empty */
-    .empty { background: #fff; border: 2px dashed #e2e8f0; border-radius: 16px; padding: 48px; text-align: center; color: #94a3b8; }
-    .empty-icon { font-size: 48px; margin-bottom: 16px; }
+    .section {
+      padding: 20px; background: #fff; border: 1px solid #e2e8f0;
+      border-radius: 14px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    }
+    .section-title { font-size: 12px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 14px; }
 
     /* Toggle */
-    .toggle { width: 40px; height: 22px; border-radius: 11px; display: flex; align-items: center; cursor: pointer; padding: 2px; transition: all .3s; }
-    .toggle-on { background: linear-gradient(135deg, #059669, #10b981); }
+    .toggle {
+      width: 40px; height: 22px; border-radius: 11px; display: flex;
+      align-items: center; cursor: pointer; padding: 2px; transition: all .3s;
+    }
+    .toggle-on { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
     .toggle-off { background: #e2e8f0; }
-    .toggle-dot { width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: all .3s; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+    .toggle-dot {
+      width: 18px; height: 18px; border-radius: 50%; background: #fff;
+      transition: all .3s; box-shadow: 0 2px 4px rgba(0,0,0,.1);
+    }
     .toggle-on .toggle-dot { transform: translateX(18px); }
 
     /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .sidebar::-webkit-scrollbar-thumb { background: #1e293b; }
 
     /* Animations */
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .fade-in { animation: fadeIn .3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn .25s ease; }
 
     /* Responsive */
-    @media (max-width: 768px) {
+    @media (max-width: 1024px) {
       .sidebar { display: none; }
       .main { margin-left: 0; }
+    }
+    @media (max-width: 768px) {
+      .stats-5 { grid-template-columns: repeat(2, 1fr); }
       .stats-4 { grid-template-columns: repeat(2, 1fr); }
+      .content { padding: 16px; }
     }
   </style>
 </head>
@@ -166,53 +273,127 @@
     <aside class="sidebar">
       <div class="brand">
         <div class="logo">YT</div>
-        <div><div class="brand-text">JB APUL v3</div><div class="brand-sub">YouTube Automation</div></div>
+        <div>
+          <div class="brand-text">JB APUL v3</div>
+          <div class="brand-sub">YouTube Automation</div>
+        </div>
       </div>
+
+      {# Channel Selector #}
+      <div class="channel-selector">
+        <label>Active Channel</label>
+        <select id="active-channel" onchange="setActiveChannel(this.value)">
+          <option value="">Semua Channel</option>
+        </select>
+      </div>
+
       <nav>
-        <div class="nav-group">
-          <div class="nav-label">Menu</div>
-          <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}"><span class="nav-icon">📊</span> Dashboard</a>
-          <a href="/media" class="nav-item {% if page == 'media' %}active{% endif %}"><span class="nav-icon">🗂️</span> Media Library</a>
-          <a href="/production" class="nav-item {% if page == 'production' %}active{% endif %}"><span class="nav-icon">🎬</span> Production</a>
+        {# 1. Analytics #}
+        <div class="nav-section">
+          <div class="nav-label">Insights</div>
+          <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}">
+            <span class="nav-icon">📊</span> Analytics
+          </a>
         </div>
-        <div class="nav-group">
-          <div class="nav-label">Upload</div>
-          <a href="/uploads" class="nav-item {% if page == 'uploads' %}active{% endif %}"><span class="nav-icon">📤</span> Upload</a>
-          <a href="/monitor-upload" class="nav-item {% if page == 'monitor-upload' %}active{% endif %}"><span class="nav-icon">📡</span> Monitor Upload</a>
+
+        {# 2. Production #}
+        <div class="nav-section">
+          <div class="nav-label">Create</div>
+          <a href="/production" class="nav-item {% if page == 'production' %}active{% endif %}">
+            <span class="nav-icon">🎬</span> Production
+          </a>
+          <a href="/media" class="nav-item {% if page == 'media' %}active{% endif %}">
+            <span class="nav-icon">🗂️</span> Media Library
+          </a>
         </div>
-        <div class="nav-group">
-          <div class="nav-label">Livestream</div>
-          <a href="/live" class="nav-item {% if page == 'live' %}active{% endif %}"><span class="nav-icon">🔴</span> Start Live</a>
-          <a href="/monitor-live" class="nav-item {% if page == 'monitor-live' %}active{% endif %}"><span class="nav-icon">📺</span> Monitor Livestream</a>
-          <a href="/estafet" class="nav-item {% if page == 'estafet' %}active{% endif %}"><span class="nav-icon">🎬</span> Estafet Mode</a>
+
+        {# 3. Publish (collapsible) #}
+        <div class="nav-section">
+          <div class="nav-label">Publish</div>
+          <div x-data="{ open: {{ 'true' if page in ['uploads','live','estafet','shorts','pipeline'] else 'false' }} }">
+            <div @click="open = !open" class="nav-group-toggle" :class="open ? 'open' : ''">
+              <span class="nav-icon">📤</span> Channels
+              <span class="chevron">▶</span>
+            </div>
+            <div class="nav-group-items" :style="open ? 'max-height:300px' : 'max-height:0'">
+              <a href="/uploads" class="nav-item {% if page == 'uploads' %}active{% endif %}">
+                <span>Upload</span>
+              </a>
+              <a href="/live" class="nav-item {% if page == 'live' %}active{% endif %}">
+                <span>Livestream</span>
+              </a>
+              <a href="/estafet" class="nav-item {% if page == 'estafet' %}active{% endif %}">
+                <span>Estafet</span>
+              </a>
+              <a href="/shorts" class="nav-item {% if page == 'shorts' %}active{% endif %}">
+                <span>Shorts</span>
+              </a>
+              <a href="/pipeline" class="nav-item {% if page == 'pipeline' %}active{% endif %}">
+                <span>Pipeline</span>
+              </a>
+            </div>
+          </div>
         </div>
-        <div class="nav-group">
-          <div class="nav-label">Shorts</div>
-          <a href="/shorts" class="nav-item {% if page == 'shorts' %}active{% endif %}"><span class="nav-icon">✂️</span> Shorts Generator</a>
-          <a href="/monitor-shorts" class="nav-item {% if page == 'monitor-shorts' %}active{% endif %}"><span class="nav-icon">📊</span> Monitor Shorts</a>
+
+        {# 4. Monitor (collapsible) #}
+        <div class="nav-section">
+          <div class="nav-label">Monitor</div>
+          <div x-data="{ open: {{ 'true' if page in ['monitor-upload','monitor-live','monitor-shorts'] else 'false' }} }">
+            <div @click="open = !open" class="nav-group-toggle" :class="open ? 'open' : ''">
+              <span class="nav-icon">📡</span> Status
+              <span class="chevron">▶</span>
+            </div>
+            <div class="nav-group-items" :style="open ? 'max-height:200px' : 'max-height:0'">
+              <a href="/monitor-upload" class="nav-item {% if page == 'monitor-upload' %}active{% endif %}">
+                <span>Uploads</span>
+              </a>
+              <a href="/monitor-live" class="nav-item {% if page == 'monitor-live' %}active{% endif %}">
+                <span>Livestreams</span>
+              </a>
+              <a href="/monitor-shorts" class="nav-item {% if page == 'monitor-shorts' %}active{% endif %}">
+                <span>Shorts</span>
+              </a>
+            </div>
+          </div>
         </div>
-        <div class="nav-group">
-          <div class="nav-label">Automation</div>
-          <a href="/pipeline" class="nav-item {% if page == 'pipeline' %}active{% endif %}"><span class="nav-icon">⚡</span> Pipeline</a>
+
+        {# 5. AI Tools #}
+        <div class="nav-section">
+          <div class="nav-label">AI</div>
+          <a href="/ai-settings" class="nav-item {% if page == 'ai-settings' %}active{% endif %}">
+            <span class="nav-icon">⚙️</span> AI Settings
+          </a>
         </div>
       </nav>
-      <div class="channel-box">
-        <div class="label">Channels</div>
-        <div class="value" id="ch-count">0</div>
-        <div class="sub">Total channels</div>
+
+      {# System Stats #}
+      <div class="sidebar-footer">
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label">CPU</span>
+          <span class="sidebar-stat-value" id="sb-cpu">-</span>
+        </div>
+        <div class="sidebar-stat-bar"><div class="sidebar-stat-bar-fill bar-green" id="sb-cpu-bar" style="width:0%"></div></div>
+        <div class="sidebar-stat-row" style="margin-top:6px">
+          <span class="sidebar-stat-label">RAM</span>
+          <span class="sidebar-stat-value" id="sb-mem">-</span>
+        </div>
+        <div class="sidebar-stat-bar"><div class="sidebar-stat-bar-fill bar-green" id="sb-mem-bar" style="width:0%"></div></div>
+        <div class="sidebar-stat-row" style="margin-top:6px">
+          <span class="sidebar-stat-label">Disk</span>
+          <span class="sidebar-stat-value" id="sb-disk">-</span>
+        </div>
+        <div class="sidebar-stat-bar"><div class="sidebar-stat-bar-fill bar-green" id="sb-disk-bar" style="width:0%"></div></div>
+        <div class="sidebar-stat-row" style="margin-top:8px">
+          <span class="sidebar-stat-label">Channels</span>
+          <span class="sidebar-stat-value" id="sb-ch-count">0</span>
+        </div>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
         <div class="topbar-left">
-          <div class="page-title">{% block title %}📊 Dashboard{% endblock %}</div>
-          <div class="ch-select">
-            <span class="label">Channel:</span>
-            <select id="active-channel" onchange="setActiveChannel(this.value)">
-              <option value="">Semua Channel</option>
-            </select>
-          </div>
+          <div class="page-title">{% block title %}📊 Analytics{% endblock %}</div>
         </div>
         <div class="topbar-right">
           <button onclick="showModal('modal-add')" class="btn">+ Tambah Channel</button>
@@ -249,7 +430,7 @@
 
   <script>
     async function api(path, opts = {}) {
-      const r = await fetch('/api' + path, { headers: {'Content-Type':'application/json',...opts.headers}, ...opts });
+      const r = await fetch('/api' + path, { headers: {'Content-Type':'application/json', ...opts.headers}, ...opts });
       return r.json();
     }
 
@@ -259,11 +440,11 @@
     async function loadChannels() {
       channels = await api('/channels');
       const sel = document.getElementById('active-channel');
-      sel.innerHTML = '<option value="">Semua Channel</option>';
+      sel.innerHTML = '<option value="">Pilih Channel</option>';
       channels.forEach(c => {
-        sel.innerHTML += `<option value="${c.id}" ${activeChannelId==c.id?'selected':''}>#${c.id} — ${c.name}</option>`;
+        sel.innerHTML += '<option value="' + c.id + '" ' + (activeChannelId == c.id ? 'selected' : '') + '>#' + c.id + ' — ' + c.name + '</option>';
       });
-      document.getElementById('ch-count').textContent = channels.length;
+      document.getElementById('sb-ch-count').textContent = channels.length;
       return channels;
     }
 
@@ -271,6 +452,7 @@
       activeChannelId = id || null;
       localStorage.setItem('jb_ch', id);
       if (typeof onChannelChange === 'function') onChannelChange();
+      window.dispatchEvent(new CustomEvent('channel-changed', { detail: { channelId: id || null } }));
     }
 
     function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
@@ -298,12 +480,37 @@
       if (typeof onChannelChange === 'function') onChannelChange();
     }
 
+    // Sidebar system stats
+    async function loadSidebarStats() {
+      try {
+        var s = await api('/system/stats');
+        document.getElementById('sb-cpu').textContent = s.cpu_percent + '%';
+        document.getElementById('sb-cpu-bar').style.width = s.cpu_percent + '%';
+        document.getElementById('sb-cpu-bar').className = 'sidebar-stat-bar-fill ' + sidebarBarColor(s.cpu_percent);
+
+        document.getElementById('sb-mem').textContent = s.memory.percent + '%';
+        document.getElementById('sb-mem-bar').style.width = s.memory.percent + '%';
+        document.getElementById('sb-mem-bar').className = 'sidebar-stat-bar-fill ' + sidebarBarColor(s.memory.percent);
+
+        document.getElementById('sb-disk').textContent = s.disk.percent + '%';
+        document.getElementById('sb-disk-bar').style.width = s.disk.percent + '%';
+        document.getElementById('sb-disk-bar').className = 'sidebar-stat-bar-fill ' + sidebarBarColor(s.disk.percent);
+      } catch(e) {}
+    }
+
+    function sidebarBarColor(p) { return p > 85 ? 'bar-red' : p > 60 ? 'bar-amber' : 'bar-green'; }
+
+    // Helpers
     const fmt = n => n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n);
     const fmtBytes = b => { if(b<=0)return'0 B'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),u.length-1); return(b/Math.pow(1024,i)).toFixed(i?1:0)+' '+u[i]; };
-    const badge = (s) => `<span class="badge badge-${s}">${s}</span>`;
+    const badge = (s) => '<span class="badge badge-' + s + '">' + s + '</span>';
     const progressColor = p => p>80?'red':p>50?'yellow':'green';
 
-    document.addEventListener('DOMContentLoaded', async () => { await loadChannels(); });
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadChannels();
+      loadSidebarStats();
+      setInterval(loadSidebarStats, 30000);
+    });
     document.addEventListener('click', e => { if (e.target.classList.contains('modal')) e.target.classList.add('hidden'); });
   </script>
   {% block scripts %}{% endblock %}

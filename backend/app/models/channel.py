@@ -47,3 +47,8 @@ class Channel(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_upload = Column(DateTime(timezone=True), nullable=True)
     last_livestream = Column(DateTime(timezone=True), nullable=True)
+
+    # Monetization
+    monetization_status = Column(String(30), default="not_monetized")  # not_monetized, applied, under_review, monetized, rejected
+    monetization_date = Column(DateTime(timezone=True), nullable=True)
+    monetization_notes = Column(Text, nullable=True)

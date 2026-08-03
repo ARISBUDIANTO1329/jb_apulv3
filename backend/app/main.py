@@ -11,6 +11,7 @@ from app.models.base import Base
 from app.api import channels, media, production, uploads, livestream, pipeline, auth
 from app.api import google_auth
 from app.api import shorts
+from app.api import ai
 from app.api import estafet
 from app.api import metadata
 
@@ -56,6 +57,7 @@ app.include_router(pipeline.router, prefix="/api/pipeline", tags=["Pipeline"])
 app.include_router(shorts.router, prefix="/api/shorts", tags=["Shorts"])
 app.include_router(estafet.router, prefix="/api/estafet", tags=["Estafet"])
 app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
+app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 
 
 @app.get("/api/health")
@@ -196,3 +198,8 @@ async def page_shorts(request: Request):
 @app.get("/monitor-shorts")
 async def page_monitor_shorts(request: Request):
     return templates.TemplateResponse(request, "monitor-shorts.html", {"page": "monitor-shorts"})
+
+
+@app.get("/ai-settings")
+async def page_ai_settings(request: Request):
+    return templates.TemplateResponse(request, "ai-settings.html", {"page": "ai-settings"})

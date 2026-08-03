@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+{% block title %}⚙️ AI Settings{% endblock %}
+
+{% block content %}
+<div x-data="aiSettingsPage()" x-init="init()">
+
+  {# ── Alert ── #}
+  <div x-show="alertMsg" x-cloak
+       class="mb-4 p-4 rounded-xl text-sm font-semibold"
+       :class="alertType === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'"
+       x-text="alertMsg"></div>
+
+  {# ── Provider Config ── #}
+  <div class="card mb-5">
+    <div class="flex items-center gap-2 mb-5">
+      <span style="font-size:20px">🔌</span>
+      <div>
+        <div class="text-sm font-bold text-slate-900">AI Provider</div>
+        <div class="text-xs text-slate-500">Konfigurasi API key dan model AI</div>
+      </div>
+    </div>
+
+    {# Quick Presets #}
+    <div class="mb-5">
+      <div class="text-[10px] font-bold text-slate-400 uppercase mb-2">Quick Presets</div>
+      <div class="flex flex-wrap gap-2">
+        <button @click="applyPreset('9router')" class="btn btn-sm" :class="settings.model === 'wf/mimo-mimo-v2.5-pro' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : ''">
+          🟢 9router Mimo
+        </button>
+        <button @click="applyPreset('9router-haiku')" class="btn btn-sm" :class="settings.model === 'wf/haiku-4.5' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : ''">
+          🟢 9router Haiku
+        </button>
+        <button @click="applyPreset('9router-sonnet')" class="btn btn-sm" :class="settings.model === 'wf/sonnet-4.5' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : ''">
+          🟢 9router Sonnet
+        </button>
+        <button @click="applyPreset('claude')" class="btn btn-sm" :class="settings.provider === 'claude' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : ''">
+          🟣 Claude Haiku
+        </button>
+        <button @click="applyPreset('claude-sonnet')" class="btn btn-sm" :class="settings.model === 'claude-sonnet-4-20250514' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : ''">
+          🟣 Claude Sonnet
+        </button>
+        <button @click="applyPreset('openai')" class="btn btn-sm" :class="settings.provider === 'openai' ? 'border-blue-300 bg-blue-50 text-blue-700' : ''">
+          🔵 GPT-4o Mini
+        </button>
+        <button @click="applyPreset('ollama')" class="btn btn-sm" :class="settings.provider === 'custom' ? 'border-slate-300 bg-slate-100 text-slate-700' : ''">
+          ⚪ Ollama Local
+        </button>
+      </div>
+    </div>
+
+    {# Provider Select #}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Provider</label>
+        <select x-model="settings.provider" @change="onProviderChange()"
+                class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-400 outline-none">
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="9router">9router (Local)</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="groq">Groq (Llama/Mixtral)</option>
+          <option value="custom">Custom (Ollama/OpenRouter)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Model</label>
+        <select x-model="settings.model"
+                class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-400 outline-none">
+          <template x-for="m in currentModels" :key="m">
+            <option :value="m" x-text="getModelBadge(m) + ' ' + m"></option>
+          </template>
+        </select>
+        <div x-show="modelsLoading" class="text-[11px] text-indigo-500 mt-1">⏳ Loading models...</div>
+        <div x-show="liveModels.length > 0 && !modelsLoading" class="text-[11px] text-slate-400 mt-1">
+          <span x-text="liveModels.length + ' models available'"></span>
+          <span class="ml-2">👁️=vision 🧠=reasoning 📚=long context</span>
+        </div>
+      </div>
+    </div>
+
+    {# Base URL #}
+    <div class="mb-4">
+      <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Base URL</label>
+      <input type="text" x-model="settings.base_url" placeholder="https://api.anthropic.com/v1"
+             class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-400 outline-none font-mono">
+      <div class="text-[11px] text-slate-400 mt-1">Auto-fill sesuai provider. Override kalau pakai proxy/custom endpoint.</div>
+    </div>
+
+    {# API Key #}
+    <div class="mb-5">
+      <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">API Key</label>
+      <div class="flex gap-2">
+        <div class="relative flex-1">
+          <input :type="showKey ? 'text' : 'password'" x-model="apiKeyInput" placeholder="sk-ant-xxxxx"
+                 class="w-full px-3 py-2 pr-10 rounded-lg border border-slate-200 text-sm focus:border-indigo-400 outline-none font-mono">
+          <button @click="showKey = !showKey" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <span x-text="showKey ? '👁️' : '👁️‍🗨️'"></span>
+          </button>
+        </div>
+        <button @click="saveApiKey()" class="btn btn-primary" :disabled="!apiKeyInput">
+          💾 Save Key
+        </button>
+      </div>
+      <div class="text-[11px] text-slate-400 mt-1" x-show="settings.api_key_set">
+        ✅ Key tersimpan: <span class="font-mono" x-text="settings.api_key_masked"></span>
+      </div>
+      <div class="text-[11px] text-slate-400 mt-1" x-show="!settings.api_key_set && settings.provider !== 'custom'">
+        ⚠️ Belum ada API key
+      </div>
+    </div>
+
+    {# Test Connection #}
+    <div class="flex items-center gap-3">
+      <button @click="testConnection()" :disabled="testing" class="btn btn-primary">
+        <span x-show="!testing">🔌 Test Connection</span>
+        <span x-show="testing">⏳ Testing...</span>
+      </button>
+      <div x-show="testResult" class="text-sm font-semibold"
+           :class="testResult?.success ? 'text-emerald-600' : 'text-rose-600'"
+           x-text="testResult?.success ? '✅ Connected — ' + testResult.response + ' (' + testResult.latency_ms + 'ms)' : '❌ ' + testResult?.error"></div>
+    </div>
+  </div>
+
+  {# ── Behavior Settings ── #}
+  <div class="card mb-5">
+    <div class="flex items-center gap-2 mb-5">
+      <span style="font-size:20px">⚡</span>
+      <div>
+        <div class="text-sm font-bold text-slate-900">Behavior</div>
+        <div class="text-xs text-slate-500">Bagaimana AI bekerja</div>
+      </div>
+    </div>
+
+    <div class="space-y-4">
+      <label class="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50 cursor-pointer">
+        <div>
+          <div class="text-sm font-semibold text-slate-900">Simpan History</div>
+          <div class="text-xs text-slate-500">Catat semua perbaikan yang sudah dilakukan</div>
+        </div>
+        <button @click="settings.save_history = !settings.save_history; saveSettings()"
+                class="toggle" :class="settings.save_history ? 'toggle-on' : 'toggle-off'">
+          <div class="toggle-dot"></div>
+        </button>
+      </label>
+
+      <label class="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50 cursor-pointer">
+        <div>
+          <div class="text-sm font-semibold text-slate-900">Skip yang Sudah Di-fix</div>
+          <div class="text-xs text-slate-500">Jangan tampilkan lagi video yang sudah diperbaiki</div>
+        </div>
+        <button @click="settings.skip_fixed = !settings.skip_fixed; saveSettings()"
+                class="toggle" :class="settings.skip_fixed ? 'toggle-on' : 'toggle-off'">
+          <div class="toggle-dot"></div>
+        </button>
+      </label>
+
+      <label class="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50 cursor-pointer">
+        <div>
+          <div class="text-sm font-semibold text-slate-900">Auto-Detect Masalah</div>
+          <div class="text-xs text-slate-500">Otomatis cek saat pilih channel di dashboard</div>
+        </div>
+        <button @click="settings.auto_detect = !settings.auto_detect; saveSettings()"
+                class="toggle" :class="settings.auto_detect ? 'toggle-on' : 'toggle-off'">
+          <div class="toggle-dot"></div>
+        </button>
+      </label>
+
+      <label class="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50 cursor-pointer">
+        <div>
+          <div class="text-sm font-semibold text-slate-900">Auto-Approve</div>
+          <div class="text-xs text-slate-500">Langsung apply tanpa minta konfirmasi (⚠️ hati-hati)</div>
+        </div>
+        <button @click="settings.auto_approve = !settings.auto_approve; saveSettings()"
+                class="toggle" :class="settings.auto_approve ? 'toggle-on' : 'toggle-off'">
+          <div class="toggle-dot"></div>
+        </button>
+      </label>
+    </div>
+  </div>
+
+  {# ── Save Button ── #}
+  <div class="flex gap-3">
+    <button @click="saveSettings()" class="btn btn-primary">💾 Save All Settings</button>
+    <button @click="loadSettings()" class="btn">↻ Reset</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function aiSettingsPage() {
+  return {
+    settings: {
+      provider: 'claude',
+      base_url: 'https://api.anthropic.com/v1',
+      model: 'claude-haiku-4-5-20251001',
+      api_key_set: false,
+      api_key_masked: '',
+      save_history: true,
+      skip_fixed: true,
+      auto_detect: false,
+      auto_approve: false,
+    },
+    apiKeyInput: '',
+    showKey: false,
+    testing: false,
+    testResult: null,
+    alertMsg: '',
+    alertType: 'ok',
+    currentModels: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'],
+    liveModels: [],       // models fetched live from 9router/custom
+    modelsLoading: false,
+
+    PRESETS: {
+      '9router':        { provider: '9router', base_url: 'https://router.wflabs.dev/v1', model: 'wf/mimo-mimo-v2.5-pro' },
+      '9router-haiku':  { provider: '9router', base_url: 'https://router.wflabs.dev/v1', model: 'wf/haiku-4.5' },
+      '9router-sonnet': { provider: '9router', base_url: 'https://router.wflabs.dev/v1', model: 'wf/sonnet-4.5' },
+      'claude':         { provider: 'claude', base_url: 'https://api.anthropic.com/v1', model: 'claude-haiku-4-5-20251001' },
+      'claude-sonnet':  { provider: 'claude', base_url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-20250514' },
+      'openai':         { provider: 'openai', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+      'groq':           { provider: 'groq', base_url: 'https://api.groq.com/openai/v1', model: 'llama-3.1-70b-versatile' },
+      'ollama':         { provider: 'custom', base_url: 'http://localhost:11434/v1', model: 'llama3' },
+    },
+
+    PROVIDER_MODELS: {
+      '9router':  [],  // auto-fetched live
+      'claude':  ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'],
+      'openai':  ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
+      'groq':    ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+      'custom':  ['llama3', 'mistral', 'phi3', 'custom'],
+    },
+
+    async init() {
+      await this.loadSettings();
+    },
+
+    async loadSettings() {
+      try {
+        const data = await api('/ai/settings');
+        this.settings = { ...this.settings, ...data };
+        await this.loadModels();
+      } catch(e) {
+        console.error('[AI Settings] load error:', e);
+      }
+    },
+
+    async loadModels() {
+      const p = this.settings.provider;
+      if (p === '9router' || p === 'custom') {
+        this.modelsLoading = true;
+        try {
+          const result = await api('/ai/models/' + p + '?base_url=' + encodeURIComponent(this.settings.base_url || ''));
+          if (result.models && result.models.length > 0) {
+            this.liveModels = result.models;
+            this.currentModels = result.models.map(m => m.id);
+            // Auto-select first if current model not in list
+            if (!this.currentModels.includes(this.settings.model)) {
+              this.settings.model = this.currentModels[0];
+            }
+          } else {
+            this.liveModels = [];
+            this.currentModels = this.PROVIDER_MODELS[p] || ['custom'];
+          }
+        } catch(e) {
+          this.liveModels = [];
+          this.currentModels = this.PROVIDER_MODELS[p] || ['custom'];
+        }
+        this.modelsLoading = false;
+      } else {
+        this.liveModels = [];
+        this.currentModels = this.PROVIDER_MODELS[p] || [];
+      }
+    },
+
+    onProviderChange() {
+      const p = this.settings.provider;
+      const preset = Object.values(this.PRESETS).find(pr => pr.provider === p);
+      if (preset) {
+        this.settings.base_url = preset.base_url;
+        this.settings.model = preset.model;
+      }
+      this.loadModels();
+    },
+
+    applyPreset(key) {
+      const p = this.PRESETS[key];
+      if (!p) return;
+      this.settings.provider = p.provider;
+      this.settings.base_url = p.base_url;
+      this.settings.model = p.model;
+      this.testResult = null;
+      this.loadModels();
+    },
+
+    getModelBadge(modelId) {
+      const m = this.liveModels.find(lm => lm.id === modelId);
+      if (!m) return '';
+      let badges = '';
+      if (m.vision) badges += '👁️';
+      if (m.reasoning) badges += '🧠';
+      if (m.context >= 200000) badges += '📚';
+      return badges;
+    },
+
+    async saveApiKey() {
+      if (!this.apiKeyInput) return;
+      try {
+        await api('/ai/settings/api-key', {
+          method: 'POST',
+          body: JSON.stringify({ api_key: this.apiKeyInput }),
+        });
+        this.showAlert('ok', 'API key saved!');
+        this.apiKeyInput = '';
+        await this.loadSettings();
+      } catch(e) {
+        this.showAlert('bad', 'Failed to save API key');
+      }
+    },
+
+    async saveSettings() {
+      try {
+        await api('/ai/settings', {
+          method: 'PUT',
+          body: JSON.stringify({
+            provider: this.settings.provider,
+            base_url: this.settings.base_url,
+            model: this.settings.model,
+            save_history: this.settings.save_history,
+            skip_fixed: this.settings.skip_fixed,
+            auto_detect: this.settings.auto_detect,
+            auto_approve: this.settings.auto_approve,
+          }),
+        });
+        this.showAlert('ok', 'Settings saved!');
+      } catch(e) {
+        this.showAlert('bad', 'Failed to save settings');
+      }
+    },
+
+    async testConnection() {
+      this.testing = true;
+      this.testResult = null;
+      try {
+        const result = await api('/ai/test-connection', {
+          method: 'POST',
+          body: JSON.stringify({
+            provider: this.settings.provider,
+            base_url: this.settings.base_url,
+            api_key: this.apiKeyInput || '',
+            model: this.settings.model,
+          }),
+        });
+        this.testResult = result;
+      } catch(e) {
+        this.testResult = { success: false, error: e.message };
+      }
+      this.testing = false;
+    },
+
+    showAlert(type, msg) {
+      this.alertType = type;
+      this.alertMsg = msg;
+      setTimeout(() => { this.alertMsg = ''; }, 4000);
+    },
+  };
+}
+</script>
+{% endblock %}

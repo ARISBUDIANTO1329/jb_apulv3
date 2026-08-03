@@ -43,6 +43,8 @@ class ChannelUpdate(BaseModel):
     proxy_port: Optional[int] = None
     proxy_type: Optional[str] = None
     chrome_profile: Optional[str] = None
+    monetization_status: Optional[str] = None
+    monetization_notes: Optional[str] = None
 
 
 class ChannelResponse(BaseModel):
@@ -69,6 +71,9 @@ class ChannelResponse(BaseModel):
     token_error: Optional[str] = None
     token_expires_at: Optional[str] = None
     token_checked_at: Optional[str] = None
+    monetization_status: Optional[str] = None
+    monetization_date: Optional[str] = None
+    monetization_notes: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -155,6 +160,9 @@ async def list_channels(db: AsyncSession = Depends(get_db)):
             "token_error": ch.token_error,
             "token_expires_at": ch.token_expires_at.isoformat() if ch.token_expires_at else None,
             "token_checked_at": ch.token_checked_at.isoformat() if ch.token_checked_at else None,
+            "monetization_status": ch.monetization_status or "not_monetized",
+            "monetization_date": ch.monetization_date.isoformat() if ch.monetization_date else None,
+            "monetization_notes": ch.monetization_notes,
         }
         response.append(ch_dict)
 

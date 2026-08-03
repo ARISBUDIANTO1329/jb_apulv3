@@ -538,6 +538,9 @@ function analyticsPage() {
       }
     },
 
+    async undoFix(fixId) {
+      if (!confirm('Undo fix ini?')) return;
+      try {
         await api('/ai/undo-fix', {
           method: 'POST',
           body: JSON.stringify({ fix_id: fixId }),

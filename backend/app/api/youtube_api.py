@@ -653,3 +653,54 @@ async def get_performance(
         "total": len(videos),
         "videos": videos,
     }
+
+
+@router.get("/video-trend/{channel_id}/{video_id}")
+async def get_video_trend(channel_id: int, video_id: str, days: int = 7, db: AsyncSession = Depends(get_db)):
+    """Get 7-day views trend for a video — track growth/stagnation."""
+    result = await db.execute(select(Channel).where(Channel.id == channel_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Get last N days snapshots for this video
+    rows = await db.execute(text("""
+        SELECT snapshot_date, views, likes, ctr 
+        FROM video_analytics 
+        WHERE channel_id = :cid AND video_id = :vid
+        ORDER BY snapshot_date DESC
+        LIMIT :days
+    """), {"cid": channel_id, "vid": video_id, "days": days})
+
+    snapshots = [dict(r._mapping) for r in rows]
+    snapshots.reverse()  # oldest first
+
+    if not snapshots:
+        return {"success": False, "error": "No trend data", "video_id": video_id}
+
+    # Calculate trend
+    first_views = snapshots[0]["views"]
+    last_views = snapshots[-1]["views"]
+    growth = last_views - first_views
+    growth_pct = round((growth / max(first_views, 1)) * 100, 1)
+
+    # Trend direction
+    if growth_pct > 5:
+        trend = "up"
+    elif growth_pct < -5:
+        trend = "down"
+    else:
+        trend = "flat"
+
+    return {
+        "success": True,
+        "video_id": video_id,
+        "channel": channel.name,
+        "snapshots": [{"date": str(s["snapshot_date"]), "views": s["views"], "likes": s["likes"]} for s in snapshots],
+        "first_views": first_views,
+        "last_views": last_views,
+        "growth": growth,
+        "growth_pct": growth_pct,
+        "trend": trend,
+        "recommendation": "📈 Growing — keep this style" if trend == "up" else "📉 Declining — change thumbnail" if trend == "down" else "➡️ Stable — hold strategy",
+    }

@@ -479,6 +479,17 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
         current_title = yt_match["title"] if yt_match else vid_id
         current_views = yt_match["view_count"] if yt_match else 0
 
+        # Generate recommendation based on issue type
+        issue_type = issue["issue_type"]
+        if issue_type == "low_engagement":
+            rec = "⚠️ Low engagement video. Try new thumbnail or change title format."
+        elif issue_type == "bad_title":
+            rec = "📝 Title may not match content. Use keywords + emoji for better CTR."
+        elif issue_type == "dead_video":
+            rec = "💀 Dead video (no views). Consider unlisting or updating with new thumbnail."
+        else:
+            rec = "🔍 Review this video for potential improvements."
+        
         actions.append({
             "issue_id": issue["id"],
             "type": issue["issue_type"],
@@ -487,6 +498,7 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
             "current_title": current_title,
             "current_views": current_views,
             "description": issue["description"],
+            "recommendation": rec,
         })
 
     # 10. Update context + cache results

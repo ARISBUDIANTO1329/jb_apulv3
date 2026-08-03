@@ -187,7 +187,7 @@
         <select x-model="perfSort" @change="loadPerformance()" class="text-[11px] px-2 py-1 rounded border border-slate-200">
           <option value="ctr">Sort: CTR</option>
           <option value="views">Sort: Views</option>
-          <option value="impressions">Sort: Impressions</option>
+          <option value="impressions">Sort: Growth</option>
           <option value="watch_minutes">Sort: Watch Time</option>
         </select>
         <button class="btn btn-sm" @click="takeSnapshot()" :disabled="perfSnapshotting">
@@ -213,18 +213,18 @@
     <div x-show="perfVideos.length > 0" class="space-y-2">
       <template x-for="v in displayedPerfVideos" :key="v.video_id">
         <div class="flex gap-3 p-2 rounded-lg border"
-             :class="v.ctr < 2 ? 'border-rose-200 bg-rose-50' : v.ctr >= 5 ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'">
+             :class="v.ctr < 0.5 ? 'border-rose-200 bg-rose-50' : v.ctr >= 2 ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'">
           <img :src="v.thumbnail_url" class="w-24 h-14 object-cover rounded flex-shrink-0"
                style="min-width:96px;min-height:54px;background:#e2e8f0">
           <div class="flex-1 min-w-0">
             <div class="text-xs font-bold text-slate-800 truncate" x-text="v.title || v.video_id"></div>
             <div class="flex flex-wrap gap-3 mt-1 text-[10px]">
-              <span class="font-semibold" :class="v.ctr >= 5 ? 'text-emerald-600' : v.ctr >= 2 ? 'text-slate-600' : 'text-rose-600'">
-                CTR: <span x-text="v.ctr + '%'"></span>
+              <span class="font-semibold" :class="v.ctr >= 2 ? 'text-emerald-600' : v.ctr >= 0.5 ? 'text-slate-600' : 'text-rose-600'">
+                Engagement: <span x-text="v.ctr + '%'"></span>
               </span>
-              <span class="text-slate-500">Imp: <span x-text="v.impressions?.toLocaleString()"></span></span>
+              <span class="text-slate-500">Growth: <span x-text="v.impressions?.toLocaleString()"></span></span>
               <span class="text-slate-500">Views: <span x-text="v.views?.toLocaleString()"></span></span>
-              <span class="text-slate-500">Watch: <span x-text="v.watch_minutes >= 60 ? (v.watch_minutes/60).toFixed(1) + 'h' : Math.round(v.watch_minutes) + 'm'"></span></span>
+              <span class="text-slate-500">Likes: <span x-text="v.likes || 0"></span></span>
             </div>
             <div class="flex gap-2 mt-1">
               <a :href="v.youtube_url" target="_blank" class="text-[10px] text-blue-500 hover:underline">YouTube ↗</a>
@@ -237,7 +237,7 @@
     <div x-show="perfVideos.length === 0 && !perfSnapshotting && selectedChannelId" class="text-center py-6">
       <div style="font-size:28px;margin-bottom:8px">📊</div>
       <div class="text-sm text-slate-500">Klik "Snapshot" untuk tarik data video</div>
-      <div class="text-[11px] text-slate-400 mt-1">Data CTR per video dari YouTube Analytics</div>
+      <div class="text-[11px] text-slate-400 mt-1">Data views, likes, engagement per video</div>
     </div>
   </div>
 
@@ -637,9 +637,9 @@ function analyticsPage() {
     get displayedPerfVideos() {
       const sorted = [...this.perfVideos];
       if (this.perfTab === 'bottom') {
-        return sorted.filter(v => v.ctr < 2).slice(0, 10);
+        return sorted.filter(v => v.ctr < 0.5).slice(0, 10);
       }
-      return sorted.filter(v => v.ctr >= 2).slice(0, 10);
+      return sorted.filter(v => v.ctr >= 0.5).slice(0, 10);
     },
 
     async takeSnapshot() {

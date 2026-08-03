@@ -440,10 +440,11 @@ from app.models.video_analytics import VideoAnalytics
 
 
 @router.post("/snapshot/{channel_id}")
-async def take_snapshot(channel_id: int, days: int = 30, db: AsyncSession = Depends(get_db)):
+async def take_snapshot(channel_id: int, max_results: int = 50, db: AsyncSession = Depends(get_db)):
     """
-    Fetch per-video CTR + impressions from YouTube Analytics,
-    upsert into video_analytics table. One row per video per day.
+    Fetch per-video stats from YouTube Data API v3.
+    Stores views, likes, engagement rate into video_analytics.
+    One row per video per day.
     """
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
     channel = result.scalar_one_or_none()
@@ -452,105 +453,101 @@ async def take_snapshot(channel_id: int, days: int = 30, db: AsyncSession = Depe
     if not channel.youtube_channel_id:
         return {"success": False, "error": "YouTube Channel ID not set."}
 
-    analytics, creds = _get_analytics_service(channel)
-    youtube, _ = _get_youtube_service(channel)
-
-    end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    youtube, creds = _get_youtube_service(channel)
     today = datetime.now(timezone.utc).date()
+    yesterday = today - timedelta(days=1)
 
-    has_ctr = False
     try:
-        # Per-video metrics from Analytics API — try CTR first, fallback to basic
-        has_ctr = True
-        try:
-            videos_response = analytics.reports().query(
-                ids=f"channel=={channel.youtube_channel_id}",
-                startDate=start_date,
-                endDate=end_date,
-                metrics="views,estimatedMinutesWatched,averageViewPercentage,subscribersGained,impressions,impressionClickThroughRate",
-                dimensions="video",
-                sort="-views",
-                maxResults=50,
+        # Step 1: Get all video IDs from channel via search.list
+        all_video_ids = []
+        next_page = None
+        while len(all_video_ids) < max_results:
+            batch_size = min(50, max_results - len(all_video_ids))
+            search_kwargs = dict(
+                part="snippet",
+                channelId=channel.youtube_channel_id,
+                maxResults=batch_size,
+                order="date",
+                type="video",
+            )
+            if next_page:
+                search_kwargs["pageToken"] = next_page
+            search_resp = youtube.search().list(**search_kwargs).execute()
+            items = search_resp.get("items", [])
+            if not items:
+                break
+            all_video_ids.extend([item["id"]["videoId"] for item in items])
+            next_page = search_resp.get("nextPageToken")
+            if not next_page:
+                break
+
+        if not all_video_ids:
+            return {"success": True, "message": "No videos found", "stored": 0}
+
+        log.info(f"Found {len(all_video_ids)} videos for channel {channel.name}")
+
+        # Step 2: Get stats for all videos (batch 50 at a time)
+        all_stats = []
+        for i in range(0, len(all_video_ids), 50):
+            batch = all_video_ids[i:i+50]
+            vids_resp = youtube.videos().list(
+                part="statistics,snippet",
+                id=",".join(batch),
             ).execute()
-        except Exception as ctr_err:
-            if "impressions" in str(ctr_err).lower() or "Unknown identifier" in str(ctr_err):
-                has_ctr = False
-                log.info("CTR metrics not available, falling back to basic metrics")
-                videos_response = analytics.reports().query(
-                    ids=f"channel=={channel.youtube_channel_id}",
-                    startDate=start_date,
-                    endDate=end_date,
-                    metrics="views,estimatedMinutesWatched,averageViewPercentage,subscribersGained",
-                    dimensions="video",
-                    sort="-views",
-                    maxResults=50,
-                ).execute()
-            else:
-                raise
+            for item in vids_resp.get("items", []):
+                snippet = item.get("snippet", {})
+                stats = item.get("statistics", {})
+                all_stats.append({
+                    "video_id": item["id"],
+                    "title": snippet.get("title", ""),
+                    "thumbnail": snippet.get("thumbnails", {}).get("medium", {}).get("url", ""),
+                    "views": int(stats.get("viewCount", 0) or 0),
+                    "likes": int(stats.get("likeCount", 0) or 0),
+                    "comments": int(stats.get("commentCount", 0) or 0),
+                    "published_at": snippet.get("publishedAt", ""),
+                })
 
-        vid_headers = [h["name"] for h in videos_response.get("columnHeaders", [])]
-        rows = videos_response.get("rows", [])
-        if not rows:
-            return {"success": True, "message": "No video data found", "stored": 0}
+        # Step 3: Get yesterday's snapshots for growth calculation
+        yesterday_rows = await db.execute(text(
+            "SELECT video_id, views FROM video_analytics WHERE channel_id = :cid AND snapshot_date = :d"
+        ), {"cid": channel_id, "d": yesterday})
+        yesterday_map = {r.video_id: r.views for r in yesterday_rows}
 
-        # Get video IDs for title/thumbnail lookup
-        video_ids = [row[vid_headers.index("video")] for row in rows]
-        yt_response = youtube.videos().list(
-            part="snippet",
-            id=",".join(video_ids[:50]),
-        ).execute()
-
-        # Build lookup: video_id -> {title, thumbnail}
-        vid_meta = {}
-        for item in yt_response.get("items", []):
-            snippet = item["snippet"]
-            vid_meta[item["id"]] = {
-                "title": snippet.get("title", ""),
-                "thumbnail": snippet.get("thumbnails", {}).get("medium", {}).get("url", ""),
-            }
-
-        # Upsert each video
+        # Step 4: Upsert each video
         stored = 0
-        for row in rows:
-            entry = {}
-            for i, h in enumerate(vid_headers):
-                entry[h] = row[i]
+        for v in all_stats:
+            vid = v["video_id"]
+            views = v["views"]
+            likes = v["likes"]
+            # Engagement rate: (likes / views) * 100 — proxy for CTR
+            engagement_rate = round((likes / views * 100), 2) if views > 0 else 0.0
+            # Views growth: how many views gained since yesterday
+            prev_views = yesterday_map.get(vid, 0)
+            views_growth = max(0, views - prev_views)
 
-            vid = entry.get("video", "")
-            impressions = int(entry.get("impressions", 0) or 0) if has_ctr else 0
-            ctr = round(float(entry.get("impressionClickThroughRate", 0) or 0), 2) if has_ctr else 0.0
-            views = int(entry.get("views", 0) or 0)
-            watch_min = round(float(entry.get("estimatedMinutesWatched", 0) or 0), 1)
-            avg_pct = round(float(entry.get("averageViewPercentage", 0) or 0), 1)
-            subs = int(entry.get("subscribersGained", 0) or 0)
-            meta = vid_meta.get(vid, {})
-
-            # PostgreSQL UPSERT
             stmt = pg_insert(VideoAnalytics).values(
                 channel_id=channel_id,
                 video_id=vid,
-                video_title=meta.get("title", ""),
-                thumbnail_url=meta.get("thumbnail", ""),
+                video_title=v["title"],
+                thumbnail_url=v["thumbnail"],
                 snapshot_date=today,
-                impressions=impressions,
-                ctr=ctr,
+                impressions=views_growth,  # repurpose: daily views growth
+                ctr=engagement_rate,       # repurpose: engagement rate %
                 views=views,
-                watch_minutes=watch_min,
-                avg_view_percentage=avg_pct,
-                likes=0,
-                subs_gained=subs,
+                watch_minutes=0,
+                avg_view_percentage=0,
+                likes=likes,
+                subs_gained=v["comments"],  # repurpose: comments count
             ).on_conflict_do_update(
                 constraint="uq_video_snapshot",
                 set_={
-                    "impressions": impressions,
-                    "ctr": ctr,
+                    "impressions": views_growth,
+                    "ctr": engagement_rate,
                     "views": views,
-                    "watch_minutes": watch_min,
-                    "avg_view_percentage": avg_pct,
-                    "subs_gained": subs,
-                    "video_title": meta.get("title", ""),
-                    "thumbnail_url": meta.get("thumbnail", ""),
+                    "likes": likes,
+                    "subs_gained": v["comments"],
+                    "video_title": v["title"],
+                    "thumbnail_url": v["thumbnail"],
                 },
             )
             await db.execute(stmt)
@@ -568,6 +565,7 @@ async def take_snapshot(channel_id: int, days: int = 30, db: AsyncSession = Depe
             "stored": stored,
             "date": str(today),
             "channel": channel.name,
+            "method": "data_api_v3",
         }
 
     except Exception as e:
@@ -612,7 +610,7 @@ async def get_performance(
 
     rows = await db.execute(text(f"""
         SELECT video_id, video_title, thumbnail_url,
-               impressions, ctr, views, watch_minutes,
+               impressions, ctr, views, watch_minutes, likes,
                avg_view_percentage, subs_gained
         FROM video_analytics
         WHERE channel_id = :cid AND snapshot_date = :d
@@ -632,6 +630,7 @@ async def get_performance(
             "watch_minutes": round(r.watch_minutes, 1),
             "avg_view_percentage": r.avg_view_percentage,
             "subs_gained": r.subs_gained,
+            "likes": r.likes,
             "youtube_url": f"https://youtube.com/watch?v={r.video_id}",
         })
 

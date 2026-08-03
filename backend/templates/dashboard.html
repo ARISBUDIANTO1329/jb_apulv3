@@ -241,6 +241,51 @@
     </div>
   </div>
 
+
+  {# — Analytics Summary — #}
+  <div class="card mb-5" x-show="selectedChannelId">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <span style="font-size:16px">📊</span>
+        <div class="text-sm font-bold text-slate-900">Analytics Insights</div>
+      </div>
+      <button class="btn btn-sm text-xs" @click="loadAnalytics()" :disabled="analyticsLoading">
+        <span x-show="!analyticsLoading">🔄 Refresh</span>
+        <span x-show="analyticsLoading">⏳...</span>
+      </button>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3">
+      <div class="p-3 rounded-lg bg-blue-50 border border-blue-200">
+        <div class="text-xs font-semibold text-blue-700">📅 Best Upload Time</div>
+        <div class="mt-2 text-sm font-bold text-blue-900" x-text="bestUploadDay + ' ' + bestUploadHour + ':00'">—</div>
+        <div class="text-xs text-blue-600 mt-1">Based on top videos</div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-rose-50 border border-rose-200">
+        <div class="text-xs font-semibold text-rose-700">⚠️ Low Engagement</div>
+        <div class="mt-2 text-sm font-bold text-rose-900" x-text="lowEngagementCount + ' videos'">—</div>
+        <div class="text-xs text-rose-600 mt-1">Need thumbnail fix</div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+        <div class="text-xs font-semibold text-emerald-700">📈 Growing</div>
+        <div class="mt-2 text-sm font-bold text-emerald-900" x-text="growingVideosCount + ' videos'">—</div>
+        <div class="text-xs text-emerald-600 mt-1">Keep this style</div>
+      </div>
+    </div>
+
+    <div class="mt-4 p-3 rounded-lg bg-slate-100">
+      <div class="text-xs font-semibold text-slate-700 mb-2">💡 Recommendations</div>
+      <ul class="text-xs text-slate-600 space-y-1">
+        <li x-show="bestUploadDay">✅ Upload on <span x-text="bestUploadDay + 's'"></span></li>
+        <li x-show="lowEngagementCount > 0">⚠️ Fix <span x-text="lowEngagementCount"></span> low-engagement videos</li>
+        <li x-show="growingVideosCount > 0">📈 Replicate <span x-text="growingVideosCount"></span> growing formats</li>
+      </ul>
+    </div>
+  </div>
+
+
   {# ── Today's Schedule ── #}
   <div class="card mb-5">
     <div class="flex items-center justify-between mb-4">
@@ -415,6 +460,11 @@ function analyticsPage() {
     aiCachedAt: null,
     // Video Performance
     perfVideos: [],
+    bestUploadDay: "-",
+    bestUploadHour: "-",
+    lowEngagementCount: 0,
+    growingVideosCount: 0,
+    analyticsLoading: false,
     perfTab: 'top',
     perfSort: 'ctr',
     perfSnapshotting: false,
@@ -659,6 +709,24 @@ function analyticsPage() {
     },
 
     async loadPerformance() {
+    },
+
+    async loadAnalytics() {
+      if (!this.selectedChannelId) return;
+      this.analyticsLoading = true;
+      try {
+        const result = await api("/youtube/best-upload-time/" + this.selectedChannelId);
+        if (result.success) {
+          this.bestUploadDay = result.best_day || "-";
+          this.bestUploadHour = result.best_hour || "-";
+        }
+        const perf = await api("/youtube/performance/" + this.selectedChannelId + "?limit=50");
+        if (perf.success) {
+          this.lowEngagementCount = perf.videos.filter(v => v.engagement < 1).length;
+          this.growingVideosCount = perf.videos.filter(v => v.impressions > 0).length;
+        }
+      } catch(e) { console.error("Analytics error:", e); }
+      this.analyticsLoading = false;
       if (!this.selectedChannelId) return;
       try {
         const result = await api('/youtube/performance/' + this.selectedChannelId + '?sort=' + this.perfSort + '&limit=50');

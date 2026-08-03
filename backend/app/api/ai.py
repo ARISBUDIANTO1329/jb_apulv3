@@ -598,7 +598,6 @@ async def analyze_channel(channel_id: int, db: AsyncSession = Depends(get_db)):
             "suggested_titles": suggested_titles,
             "suggested_description": suggested_desc,
             "suggested_tags": suggested_tags,
-            "thumbnail_prompt": f"Create a YouTube thumbnail for '{current_title[:50]}' — vibrant colors, cinematic lighting, 4K quality, bold text",
             "reasoning": reasoning,
         })
 

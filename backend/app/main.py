@@ -13,6 +13,7 @@ from app.api import google_auth
 from app.api import shorts
 from app.api import ai
 from app.api import youtube_api
+from app.api import thumbnail
 from app.api import estafet
 from app.api import metadata
 
@@ -44,6 +45,7 @@ app.add_middleware(
 # Static files & templates
 BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount("/storage", StaticFiles(directory="/app/storage"), name="storage")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # Include routers
@@ -60,6 +62,7 @@ app.include_router(estafet.router, prefix="/api/estafet", tags=["Estafet"])
 app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 app.include_router(youtube_api.router, prefix="/api/youtube", tags=["YouTube API"])
+app.include_router(thumbnail.router, prefix="/api/thumbnail", tags=["Thumbnail"])
 
 
 @app.get("/api/health")

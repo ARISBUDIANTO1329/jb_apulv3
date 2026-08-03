@@ -12,6 +12,7 @@ from app.models.estafet import EstafetJob, EstafetItem
 from app.models.auto_control_room_job import AutoControlRoomJob, AutoControlRoomJobItem
 from app.models.auto_production_schedule import AutoProductionSchedule
 from app.models.auto_seamless_progress import AutoSeamlessProgress
+from app.models.video_analytics import VideoAnalytics
 
 __all__ = [
     "User", "Channel", "MediaItem",
@@ -26,4 +27,5 @@ __all__ = [
     "AutoControlRoomJob", "AutoControlRoomJobItem",
     "AutoProductionSchedule",
     "AutoSeamlessProgress",
+    "VideoAnalytics",
 ]

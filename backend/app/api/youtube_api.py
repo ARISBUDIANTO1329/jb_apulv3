@@ -13,6 +13,7 @@ from sqlalchemy import select, text
 
 from app.db.session import get_db
 from app.models.channel import Channel
+from app.models.video_analytics import VideoAnalytics
 
 router = APIRouter()
 log = logging.getLogger("youtube_api")
@@ -266,16 +267,32 @@ async def get_analytics(
     end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
 
+    channel_has_ctr = False
     try:
-        # Channel-level analytics
-        channel_response = analytics.reports().query(
-            ids=f"channel=={channel.youtube_channel_id}",
-            startDate=start_date,
-            endDate=end_date,
-            metrics="views,estimatedMinutesWatched,subscribersGained,subscribersLost,averageViewDuration,averageViewPercentage",
-            dimensions="day",
-            sort="day",
-        ).execute()
+        # Channel-level analytics — try CTR first, fallback to basic
+        try:
+            channel_response = analytics.reports().query(
+                ids=f"channel=={channel.youtube_channel_id}",
+                startDate=start_date,
+                endDate=end_date,
+                metrics="views,estimatedMinutesWatched,subscribersGained,subscribersLost,averageViewDuration,averageViewPercentage,impressions,impressionClickThroughRate",
+                dimensions="day",
+                sort="day",
+            ).execute()
+            channel_has_ctr = True
+        except Exception as ctr_err:
+            if "impressions" in str(ctr_err).lower() or "Unknown identifier" in str(ctr_err):
+                channel_has_ctr = False
+                channel_response = analytics.reports().query(
+                    ids=f"channel=={channel.youtube_channel_id}",
+                    startDate=start_date,
+                    endDate=end_date,
+                    metrics="views,estimatedMinutesWatched,subscribersGained,subscribersLost,averageViewDuration,averageViewPercentage",
+                    dimensions="day",
+                    sort="day",
+                ).execute()
+            else:
+                raise
 
         # Top videos analytics
         videos_response = analytics.reports().query(
@@ -311,6 +328,12 @@ async def get_analytics(
         total_watch_min = sum(d.get("estimatedMinutesWatched", 0) for d in daily)
         total_subs_gained = sum(d.get("subscribersGained", 0) for d in daily)
         total_subs_lost = sum(d.get("subscribersLost", 0) for d in daily)
+        total_impressions = sum(d.get("impressions", 0) for d in daily) if channel_has_ctr else 0
+        if channel_has_ctr:
+            total_ctr_vals = [d.get("impressionClickThroughRate", 0) for d in daily if d.get("impressionClickThroughRate", 0) > 0]
+            avg_ctr = round(sum(total_ctr_vals) / max(len(total_ctr_vals), 1), 1) if total_ctr_vals else 0
+        else:
+            avg_ctr = 0
 
         if creds.token != channel.access_token:
             channel.access_token = creds.token
@@ -329,6 +352,8 @@ async def get_analytics(
                 "net_subs": total_subs_gained - total_subs_lost,
                 "avg_view_duration_sec": round(sum(d.get("averageViewDuration", 0) for d in daily) / max(len(daily), 1), 1),
                 "avg_view_percentage": round(sum(d.get("averageViewPercentage", 0) for d in daily) / max(len(daily), 1), 1),
+                "total_impressions": total_impressions,
+                "avg_ctr": avg_ctr,
             },
             "daily": daily,
             "top_videos": top_videos,
@@ -406,3 +431,217 @@ async def channel_info(channel_id: int, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         log.error(f"Channel info error: {e}")
         raise HTTPException(status_code=500, detail=str(e)[:200])
+
+
+# ── Video Performance Snapshot ──────────────────────────────
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from app.models.video_analytics import VideoAnalytics
+
+
+@router.post("/snapshot/{channel_id}")
+async def take_snapshot(channel_id: int, days: int = 30, db: AsyncSession = Depends(get_db)):
+    """
+    Fetch per-video CTR + impressions from YouTube Analytics,
+    upsert into video_analytics table. One row per video per day.
+    """
+    result = await db.execute(select(Channel).where(Channel.id == channel_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if not channel.youtube_channel_id:
+        return {"success": False, "error": "YouTube Channel ID not set."}
+
+    analytics, creds = _get_analytics_service(channel)
+    youtube, _ = _get_youtube_service(channel)
+
+    end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).date()
+
+    has_ctr = False
+    try:
+        # Per-video metrics from Analytics API — try CTR first, fallback to basic
+        has_ctr = True
+        try:
+            videos_response = analytics.reports().query(
+                ids=f"channel=={channel.youtube_channel_id}",
+                startDate=start_date,
+                endDate=end_date,
+                metrics="views,estimatedMinutesWatched,averageViewPercentage,subscribersGained,impressions,impressionClickThroughRate",
+                dimensions="video",
+                sort="-views",
+                maxResults=50,
+            ).execute()
+        except Exception as ctr_err:
+            if "impressions" in str(ctr_err).lower() or "Unknown identifier" in str(ctr_err):
+                has_ctr = False
+                log.info("CTR metrics not available, falling back to basic metrics")
+                videos_response = analytics.reports().query(
+                    ids=f"channel=={channel.youtube_channel_id}",
+                    startDate=start_date,
+                    endDate=end_date,
+                    metrics="views,estimatedMinutesWatched,averageViewPercentage,subscribersGained",
+                    dimensions="video",
+                    sort="-views",
+                    maxResults=50,
+                ).execute()
+            else:
+                raise
+
+        vid_headers = [h["name"] for h in videos_response.get("columnHeaders", [])]
+        rows = videos_response.get("rows", [])
+        if not rows:
+            return {"success": True, "message": "No video data found", "stored": 0}
+
+        # Get video IDs for title/thumbnail lookup
+        video_ids = [row[vid_headers.index("video")] for row in rows]
+        yt_response = youtube.videos().list(
+            part="snippet",
+            id=",".join(video_ids[:50]),
+        ).execute()
+
+        # Build lookup: video_id -> {title, thumbnail}
+        vid_meta = {}
+        for item in yt_response.get("items", []):
+            snippet = item["snippet"]
+            vid_meta[item["id"]] = {
+                "title": snippet.get("title", ""),
+                "thumbnail": snippet.get("thumbnails", {}).get("medium", {}).get("url", ""),
+            }
+
+        # Upsert each video
+        stored = 0
+        for row in rows:
+            entry = {}
+            for i, h in enumerate(vid_headers):
+                entry[h] = row[i]
+
+            vid = entry.get("video", "")
+            impressions = int(entry.get("impressions", 0) or 0) if has_ctr else 0
+            ctr = round(float(entry.get("impressionClickThroughRate", 0) or 0), 2) if has_ctr else 0.0
+            views = int(entry.get("views", 0) or 0)
+            watch_min = round(float(entry.get("estimatedMinutesWatched", 0) or 0), 1)
+            avg_pct = round(float(entry.get("averageViewPercentage", 0) or 0), 1)
+            subs = int(entry.get("subscribersGained", 0) or 0)
+            meta = vid_meta.get(vid, {})
+
+            # PostgreSQL UPSERT
+            stmt = pg_insert(VideoAnalytics).values(
+                channel_id=channel_id,
+                video_id=vid,
+                video_title=meta.get("title", ""),
+                thumbnail_url=meta.get("thumbnail", ""),
+                snapshot_date=today,
+                impressions=impressions,
+                ctr=ctr,
+                views=views,
+                watch_minutes=watch_min,
+                avg_view_percentage=avg_pct,
+                likes=0,
+                subs_gained=subs,
+            ).on_conflict_do_update(
+                constraint="uq_video_snapshot",
+                set_={
+                    "impressions": impressions,
+                    "ctr": ctr,
+                    "views": views,
+                    "watch_minutes": watch_min,
+                    "avg_view_percentage": avg_pct,
+                    "subs_gained": subs,
+                    "video_title": meta.get("title", ""),
+                    "thumbnail_url": meta.get("thumbnail", ""),
+                },
+            )
+            await db.execute(stmt)
+            stored += 1
+
+        await db.commit()
+
+        # Update token if refreshed
+        if creds.token != channel.access_token:
+            channel.access_token = creds.token
+            await db.commit()
+
+        return {
+            "success": True,
+            "stored": stored,
+            "date": str(today),
+            "channel": channel.name,
+        }
+
+    except Exception as e:
+        log.error(f"Snapshot error: {e}")
+        raise HTTPException(status_code=500, detail=str(e)[:200])
+
+
+@router.get("/performance/{channel_id}")
+async def get_performance(
+    channel_id: int,
+    sort: str = "ctr",
+    order: str = "desc",
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return video performance ranking from latest snapshot.
+    Sort by: ctr, views, impressions, watch_minutes
+    """
+    result = await db.execute(select(Channel).where(Channel.id == channel_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Get latest snapshot date
+    latest = await db.execute(text(
+        "SELECT MAX(snapshot_date) FROM video_analytics WHERE channel_id = :cid"
+    ), {"cid": channel_id})
+    latest_date = latest.scalar()
+    if not latest_date:
+        return {"success": False, "error": "No snapshot data. Take a snapshot first.", "videos": []}
+
+    # Sort column mapping
+    sort_map = {
+        "ctr": "ctr",
+        "views": "views",
+        "impressions": "impressions",
+        "watch_minutes": "watch_minutes",
+    }
+    sort_col = sort_map.get(sort, "ctr")
+    order_dir = "DESC" if order == "desc" else "ASC"
+
+    rows = await db.execute(text(f"""
+        SELECT video_id, video_title, thumbnail_url,
+               impressions, ctr, views, watch_minutes,
+               avg_view_percentage, subs_gained
+        FROM video_analytics
+        WHERE channel_id = :cid AND snapshot_date = :d
+        ORDER BY {sort_col} {order_dir}
+        LIMIT :lim
+    """), {"cid": channel_id, "d": latest_date, "lim": limit})
+
+    videos = []
+    for r in rows:
+        videos.append({
+            "video_id": r.video_id,
+            "title": r.video_title,
+            "thumbnail_url": r.thumbnail_url,
+            "impressions": r.impressions,
+            "ctr": r.ctr,
+            "views": r.views,
+            "watch_minutes": round(r.watch_minutes, 1),
+            "avg_view_percentage": r.avg_view_percentage,
+            "subs_gained": r.subs_gained,
+            "youtube_url": f"https://youtube.com/watch?v={r.video_id}",
+        })
+
+    return {
+        "success": True,
+        "channel": channel.name,
+        "channel_id": channel_id,
+        "snapshot_date": str(latest_date),
+        "sort": sort,
+        "order": order,
+        "total": len(videos),
+        "videos": videos,
+    }

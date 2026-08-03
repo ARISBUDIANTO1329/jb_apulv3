@@ -173,6 +173,74 @@
     </div>
   </div>
 
+  {# — Video Performance — #}
+  <div class="card mb-5" x-show="selectedChannelId">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <span style="font-size:16px">📊</span>
+        <div class="text-sm font-bold text-slate-900">Video Performance</div>
+        <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+              :class="perfVideos.length > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'"
+              x-text="perfVideos.length > 0 ? perfVideos.length + ' videos' : 'No data'"></span>
+      </div>
+      <div class="flex gap-2">
+        <select x-model="perfSort" @change="loadPerformance()" class="text-[11px] px-2 py-1 rounded border border-slate-200">
+          <option value="ctr">Sort: CTR</option>
+          <option value="views">Sort: Views</option>
+          <option value="impressions">Sort: Impressions</option>
+          <option value="watch_minutes">Sort: Watch Time</option>
+        </select>
+        <button class="btn btn-sm" @click="takeSnapshot()" :disabled="perfSnapshotting">
+          <span x-show="!perfSnapshotting">📸 Snapshot</span>
+          <span x-show="perfSnapshotting">⏳ Loading...</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="flex gap-1 mb-3">
+      <button class="text-[11px] px-3 py-1 rounded-lg font-semibold"
+              :class="perfTab === 'top' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+              @click="perfTab = 'top'">🏆 Top CTR</button>
+      <button class="text-[11px] px-3 py-1 rounded-lg font-semibold"
+              :class="perfTab === 'bottom' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'"
+              @click="perfTab = 'bottom'">⚠️ Needs Fix</button>
+    </div>
+
+    <div x-show="perfSnapshotDate" class="text-[10px] text-slate-400 mb-3">
+      Snapshot: <span x-text="perfSnapshotDate"></span> · <span x-text="perfChannel"></span>
+    </div>
+
+    <div x-show="perfVideos.length > 0" class="space-y-2">
+      <template x-for="v in displayedPerfVideos" :key="v.video_id">
+        <div class="flex gap-3 p-2 rounded-lg border"
+             :class="v.ctr < 2 ? 'border-rose-200 bg-rose-50' : v.ctr >= 5 ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'">
+          <img :src="v.thumbnail_url" class="w-24 h-14 object-cover rounded flex-shrink-0"
+               style="min-width:96px;min-height:54px;background:#e2e8f0">
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-bold text-slate-800 truncate" x-text="v.title || v.video_id"></div>
+            <div class="flex flex-wrap gap-3 mt-1 text-[10px]">
+              <span class="font-semibold" :class="v.ctr >= 5 ? 'text-emerald-600' : v.ctr >= 2 ? 'text-slate-600' : 'text-rose-600'">
+                CTR: <span x-text="v.ctr + '%'"></span>
+              </span>
+              <span class="text-slate-500">Imp: <span x-text="v.impressions?.toLocaleString()"></span></span>
+              <span class="text-slate-500">Views: <span x-text="v.views?.toLocaleString()"></span></span>
+              <span class="text-slate-500">Watch: <span x-text="v.watch_minutes >= 60 ? (v.watch_minutes/60).toFixed(1) + 'h' : Math.round(v.watch_minutes) + 'm'"></span></span>
+            </div>
+            <div class="flex gap-2 mt-1">
+              <a :href="v.youtube_url" target="_blank" class="text-[10px] text-blue-500 hover:underline">YouTube ↗</a>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div x-show="perfVideos.length === 0 && !perfSnapshotting && selectedChannelId" class="text-center py-6">
+      <div style="font-size:28px;margin-bottom:8px">📊</div>
+      <div class="text-sm text-slate-500">Klik "Snapshot" untuk tarik data video</div>
+      <div class="text-[11px] text-slate-400 mt-1">Data CTR per video dari YouTube Analytics</div>
+    </div>
+  </div>
+
   {# ── Today's Schedule ── #}
   <div class="card mb-5">
     <div class="flex items-center justify-between mb-4">
@@ -345,10 +413,19 @@ function analyticsPage() {
     aiFixes: [],
     aiOpenIssues: 0,
     aiCachedAt: null,
+    // Video Performance
+    perfVideos: [],
+    perfTab: 'top',
+    perfSort: 'ctr',
+    perfSnapshotting: false,
+    perfSnapshotDate: null,
+    perfChannel: '',
+
 
     async init() {
       this.today = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
       this.loadData();
+      this.loadPerformance();
 
       window.addEventListener('channel-changed', (e) => {
         this.selectedChannelId = e.detail.channelId;
@@ -358,11 +435,13 @@ function analyticsPage() {
         this.aiFixes = [];
         this.aiOpenIssues = 0;
         this.loadCachedAnalysis();
+        this.loadPerformance();
       });
 
       this.selectedChannelId = activeChannelId;
       if (this.selectedChannelId) {
         this.loadCachedAnalysis();
+        this.loadPerformance();
       }
       setInterval(() => this.loadSystem(), 30000);
     },
@@ -383,7 +462,7 @@ function analyticsPage() {
           ctr: ch.ctr || (Math.random() * 4 + 1).toFixed(1),
           monetization_status: ch.monetization_status || 'not_monetized',
           aiScore: ch.aiScore || Math.floor(Math.random() * 40 + 50),
-          trend: ch.trend || (Math.random() > 0.5 ? 'up' : 'flat'),
+          trend: ch.trend || "-",
           trendLabel: ch.trendLabel || 'stable',
           token_expires_at: ch.token_expires_at,
           access_token: ch.access_token,
@@ -412,7 +491,8 @@ function analyticsPage() {
       this.summary.subsGrowth = Math.floor(this.summary.totalSubs * 0.02);
       this.summary.viewsGrowth = Math.floor(this.summary.totalViews * 0.05);
       this.summary.videosThisWeek = Math.floor(this.summary.totalVideos * 0.05);
-      this.summary.avgCTR = rows.length ? (rows.reduce((s, c) => s + parseFloat(c.ctr), 0) / rows.length).toFixed(1) : '0';
+      const ctrVals = rows.map(c => parseFloat(c.ctr)).filter(v => !isNaN(v));
+      this.summary.avgCTR = ctrVals.length ? (ctrVals.reduce((s, v) => s + v, 0) / ctrVals.length).toFixed(1) : '-';
       this.summary.estRevenue = this.summary.monetizedCount > 0 ? (this.summary.totalViews * 0.002 / 1000).toFixed(2) : '0';
     },
 
@@ -551,6 +631,44 @@ function analyticsPage() {
         await this.runAnalyze();
       } catch(e) {
         alert('Undo failed: ' + e.message);
+      }
+    },
+
+    get displayedPerfVideos() {
+      const sorted = [...this.perfVideos];
+      if (this.perfTab === 'bottom') {
+        return sorted.filter(v => v.ctr < 2).slice(0, 10);
+      }
+      return sorted.filter(v => v.ctr >= 2).slice(0, 10);
+    },
+
+    async takeSnapshot() {
+      if (!this.selectedChannelId) return;
+      this.perfSnapshotting = true;
+      try {
+        const result = await api('/youtube/snapshot/' + this.selectedChannelId, { method: 'POST' });
+        if (result.success) {
+          await this.loadPerformance();
+        } else {
+          alert('Snapshot gagal: ' + (result.error || 'Unknown'));
+        }
+      } catch(e) {
+        alert('Snapshot gagal: ' + e.message);
+      }
+      this.perfSnapshotting = false;
+    },
+
+    async loadPerformance() {
+      if (!this.selectedChannelId) return;
+      try {
+        const result = await api('/youtube/performance/' + this.selectedChannelId + '?sort=' + this.perfSort + '&limit=50');
+        if (result.success) {
+          this.perfVideos = result.videos || [];
+          this.perfSnapshotDate = result.snapshot_date || null;
+          this.perfChannel = result.channel || '';
+        }
+      } catch(e) {
+        console.error('[Perf] load error:', e);
       }
     },
 

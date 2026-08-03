@@ -63,18 +63,19 @@ class ChannelResponse(BaseModel):
     proxy_port: Optional[int]
     proxy_type: Optional[str]
     chrome_profile: Optional[str]
-    last_upload: Optional[str] = None
-    last_livestream: Optional[str] = None
+    last_upload: Optional[datetime] = None
+    last_livestream: Optional[datetime] = None
     access_token: Optional[str] = None
 
     token_status: Optional[str] = None
     token_error: Optional[str] = None
-    token_expires_at: Optional[str] = None
-    token_checked_at: Optional[str] = None
+    token_expires_at: Optional[datetime] = None
+    token_checked_at: Optional[datetime] = None
     monetization_status: Optional[str] = None
-    monetization_date: Optional[str] = None
+    monetization_date: Optional[datetime] = None
     monetization_notes: Optional[str] = None
     class Config:
+        json_encoders = {datetime: lambda v: v.isoformat() if v else None}
         from_attributes = True
 
 

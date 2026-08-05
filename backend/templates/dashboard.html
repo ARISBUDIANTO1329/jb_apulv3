@@ -2,44 +2,427 @@
 {% block title %}📊 Analytics{% endblock %}
 
 {% block content %}
-<script src="https://unpkg.com/htmx.org"></script>
+<div x-data="analyticsPage()" x-init="init()">
 
-<div style="padding: 20px;">
-  <h1>📊 Analytics - jb_apulv3</h1>
-
-  <!-- Channels Dropdown -->
-  <div style="margin: 20px 0;">
-    <label>Select Channel:</label>
-    <select name="channel_id"
-            hx-get="/api/channels/select"
-            hx-target="#channel-data"
-            hx-trigger="change"
-            style="padding: 8px; font-size: 14px;">
-      <option value="">-- All Channels --</option>
-    </select>
+  {# ── Channel Overview Cards ── #}
+  <div class="stats-row stats-3" style="margin-bottom:20px">
+    <template x-for="ch in channels" :key="ch.id">
+      <div class="stat-card" style="cursor:pointer" :style="selectedChannelId === ch.id ? 'border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.1)' : ''" @click="selectChannel(ch.id)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:12px;color:#fff" :style="'background:' + channelColor(ch.id)">
+            <span x-text="ch.name.substring(0,2).toUpperCase()"></span>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:800;color:#0f172a" x-text="ch.name"></div>
+            <div style="font-size:11px;color:#94a3b8" x-text="(ch.niche || 'No niche') + ' • ' + (ch.video_count || 0) + ' videos'"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:8px">
+          <div>
+            <div class="stat-label">SUBS</div>
+            <div style="font-size:18px;font-weight:800;color:#0f172a" x-text="fmt(ch.subscriber_count)"></div>
+          </div>
+          <div>
+            <div class="stat-label">VIEWS</div>
+            <div style="font-size:18px;font-weight:800;color:#0f172a" x-text="fmt(ch.total_views)"></div>
+          </div>
+        </div>
+      </div>
+    </template>
   </div>
 
-  <!-- Channel Data Section -->
-  <div id="channel-data">
-    <div hx-get="/api/channels/list" hx-trigger="load">Loading channels...</div>
-  </div>
-
-  <!-- Performance Section -->
-  <div id="performance" style="margin-top: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-    <h2>Video Performance</h2>
-    <button hx-post="/api/youtube/snapshot" hx-target="#perf-videos">📸 Snapshot</button>
-    <div id="perf-videos" style="margin-top: 20px;">
-      <p>Click Snapshot to fetch video data</p>
+  {# ── Empty State ── #}
+  <template x-if="!selectedChannelId">
+    <div class="section" style="text-align:center;padding:48px 20px">
+      <div style="font-size:42px;margin-bottom:12px">📊</div>
+      <div style="font-size:16px;font-weight:700;color:#0f172a">Pilih Channel untuk Analytics</div>
+      <div style="font-size:13px;color:#94a3b8;margin-top:4px">Klik salah satu card di atas untuk melihat detail analytics</div>
     </div>
-  </div>
+  </template>
+
+  {# ── Selected Channel Analytics ── #}
+  <template x-if="selectedChannelId">
+    <div style="animation:fadeIn .25s ease">
+
+      {# Channel Header + Actions #}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:11px;color:#fff" :style="'background:' + channelColor(selectedChannelId)">
+            <span x-text="selectedChannel?.name?.substring(0,2).toUpperCase() || ''"></span>
+          </div>
+          <div>
+            <div style="font-size:16px;font-weight:800;color:#0f172a" x-text="selectedChannel?.name || ''"></div>
+            <div style="font-size:11px;color:#94a3b8">
+              <span x-text="fmt(selectedChannel?.subscriber_count) + ' subs'"></span> •
+              <span x-text="fmt(selectedChannel?.total_views) + ' views'"></span> •
+              <span x-text="(selectedChannel?.video_count || 0) + ' videos'"></span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" @click="loadAll()" :disabled="loadingAny()" style="font-size:12px">
+            <span x-show="!loadingAny()">🔄</span>
+            <span x-show="loadingAny()" style="animation:spin 1s linear infinite">⏳</span>
+            <span x-text="loadingAny() ? 'Loading...' : 'Refresh'"></span>
+          </button>
+          <button class="btn-primary" @click="takeSnapshot()" :disabled="loading.snapshot" style="font-size:12px">
+            <span x-show="!loading.snapshot">📸</span>
+            <span x-show="loading.snapshot" style="animation:spin 1s linear infinite">⏳</span>
+            <span x-text="loading.snapshot ? 'Snapshotting...' : 'Snapshot'"></span>
+          </button>
+        </div>
+      </div>
+
+      {# ── Summary Stats Cards ── #}
+      <div class="stats-row stats-5" style="margin-bottom:20px">
+        <div class="stat-card">
+          <div class="stat-label">👁️ Views (30d)</div>
+          <div class="stat-value" x-text="fmt(analytics?.summary?.total_views || 0)"></div>
+          <div class="stat-sub" x-text="analytics?.period || ''"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">⏱️ Watch Hours</div>
+          <div class="stat-value" x-text="(analytics?.summary?.total_watch_hours || 0) + 'h'"></div>
+          <div class="stat-sub" x-text="'Avg ' + Math.round(analytics?.summary?.avg_view_duration_sec || 0) + 's/video'"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">📈 Avg CTR</div>
+          <div class="stat-value" :style="'color:' + ctrColor(analytics?.summary?.avg_ctr || 0)" x-text="(analytics?.summary?.avg_ctr || 0).toFixed(1) + '%'"></div>
+          <div class="stat-sub" x-text="ctrLabel(analytics?.summary?.avg_ctr || 0)"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">👥 Net Subs</div>
+          <div class="stat-value" :style="'color:' + ((analytics?.summary?.net_subs || 0) >= 0 ? '#16a34a' : '#dc2626')" x-text="(analytics?.summary?.net_subs > 0 ? '+' : '') + (analytics?.summary?.net_subs || 0)"></div>
+          <div class="stat-sub">
+            <span style="color:#16a34a" x-text="'+' + (analytics?.summary?.subs_gained || 0) + ' gained'"></span>
+            <span style="color:#dc2626;margin-left:6px" x-text="'-' + (analytics?.summary?.subs_lost || 0) + ' lost'"></span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">🎬 Avg View %</div>
+          <div class="stat-value" x-text="(analytics?.summary?.avg_view_percentage || 0).toFixed(1) + '%'"></div>
+          <div class="progress"><div class="progress-bar" :class="progressColorClass(analytics?.summary?.avg_view_percentage || 0)" :style="'width:' + Math.min(analytics?.summary?.avg_view_percentage || 0, 100) + '%'"></div></div>
+        </div>
+      </div>
+
+      {# ── Two Column: Intelligence + Performance ── #}
+      <div class="grid-2" style="margin-bottom:20px">
+
+        {# Content Intelligence #}
+        <div class="section">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <div class="section-title" style="margin:0">🧠 Content Intelligence</div>
+            <span class="badge badge-processing" x-show="intelligence" x-text="(intelligence?.total_videos || 0) + ' videos'"></span>
+          </div>
+
+          <template x-if="loading.intelligence">
+            <div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px">Analyzing patterns...</div>
+          </template>
+
+          <template x-if="!loading.intelligence && intelligence?.success">
+            <div>
+              {# High vs Low CTR comparison #}
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px">
+                  <div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em">🏆 High CTR</div>
+                  <div style="font-size:22px;font-weight:900;color:#16a34a;margin:4px 0" x-text="(intelligence?.high_ctr?.avg_ctr || 0).toFixed(1) + '%'"></div>
+                  <div style="font-size:11px;color:#64748b" x-text="(intelligence?.high_ctr?.count || 0) + ' videos • avg ' + fmt(intelligence?.high_ctr?.avg_views || 0) + ' views'"></div>
+                </div>
+                <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px">
+                  <div style="font-size:10px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.05em">⚠️ Low CTR</div>
+                  <div style="font-size:22px;font-weight:900;color:#dc2626;margin:4px 0" x-text="(intelligence?.low_ctr?.avg_ctr || 0).toFixed(1) + '%'"></div>
+                  <div style="font-size:11px;color:#64748b" x-text="(intelligence?.low_ctr?.count || 0) + ' videos • avg ' + fmt(intelligence?.low_ctr?.avg_views || 0) + ' views'"></div>
+                </div>
+              </div>
+
+              {# Keywords #}
+              <div style="margin-bottom:14px">
+                <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:6px">Top Keywords (High CTR)</div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px">
+                  <template x-for="[word, count] in (intelligence?.high_ctr?.patterns?.top_keywords || []).slice(0,8)">
+                    <span style="background:#dcfce7;color:#166534;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600" x-text="word + ' (' + count + ')'"></span>
+                  </template>
+                </div>
+              </div>
+
+              {# Recommendations #}
+              <template x-if="intelligence?.recommendations?.length > 0">
+                <div>
+                  <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:6px">💡 Recommendations</div>
+                  <template x-for="rec in intelligence.recommendations">
+                    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:4px" x-text="rec"></div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <template x-if="!loading.intelligence && (!intelligence || !intelligence.success)">
+            <div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px">
+              No data yet. Run Snapshot first.
+            </div>
+          </template>
+        </div>
+
+        {# Quick Stats & Daily Views Mini Chart #}
+        <div class="section">
+          <div class="section-title" style="margin-bottom:14px">📊 30-Day Activity</div>
+
+          <template x-if="loading.analytics">
+            <div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px">Loading analytics...</div>
+          </template>
+
+          <template x-if="!loading.analytics && analytics?.daily">
+            <div>
+              {# Mini bar chart #}
+              <div style="display:flex;align-items:flex-end;gap:2px;height:80px;margin-bottom:12px">
+                <template x-for="(day, i) in analytics.daily" :key="i">
+                  <div :style="'flex:1;height:' + Math.max(2, (day.views / maxDailyViews) * 100) + '%;background:linear-gradient(180deg,#6366f1,#818cf8);border-radius:2px 2px 0 0;min-width:3px'" :title="day.day + ': ' + day.views + ' views'"></div>
+                </template>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8">
+                <span x-text="analytics.daily[0]?.day?.substring(5) || ''"></span>
+                <span x-text="analytics.daily[analytics.daily.length-1]?.day?.substring(5) || ''"></span>
+              </div>
+
+              {# Daily breakdown summary #}
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
+                <div>
+                  <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase">Best Day</div>
+                  <div style="font-size:16px;font-weight:800;color:#0f172a;margin-top:2px" x-text="fmt(bestDay.views) + ' views'"></div>
+                  <div style="font-size:11px;color:#94a3b8" x-text="bestDay.day?.substring(5) || ''"></div>
+                </div>
+                <div>
+                  <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase">Avg / Day</div>
+                  <div style="font-size:16px;font-weight:800;color:#0f172a;margin-top:2px" x-text="fmt(avgDailyViews)"></div>
+                  <div style="font-size:11px;color:#94a3b8">views per day</div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="!loading.analytics && !analytics">
+            <div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px">No analytics data.</div>
+          </template>
+        </div>
+      </div>
+
+      {# ── Video Performance Table ── #}
+      <div class="section" style="padding:0;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0">
+          <div class="section-title" style="margin:0">🎯 Video Performance</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="badge badge-active" x-show="performance.length > 0" x-text="performance.length + ' videos'"></span>
+            <select x-model="sortBy" @change="sortPerformance()" style="font-size:11px;padding:4px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#64748b;font-weight:600;outline:none">
+              <option value="ctr">Sort: CTR</option>
+              <option value="views">Sort: Views</option>
+              <option value="likes">Sort: Likes</option>
+            </select>
+          </div>
+        </div>
+
+        <template x-if="loading.performance">
+          <div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px">Loading videos...</div>
+        </template>
+
+        <template x-if="!loading.performance && performance.length > 0">
+          <div style="overflow-x:auto">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:40%">Video</th>
+                  <th>CTR</th>
+                  <th>Views</th>
+                  <th>Likes</th>
+                  <th>Engagement</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="v in performance" :key="v.video_id">
+                  <tr>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:10px">
+                        <img x-show="v.thumbnail_url" :src="v.thumbnail_url" alt="" style="width:48px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" />
+                        <span style="font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px" x-text="v.title || v.video_id"></span>
+                      </div>
+                    </td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:4px">
+                        <span x-text="ctrBadge(v.ctr)"></span>
+                        <span :style="'color:' + ctrColor(v.ctr) + ';font-weight:700'" x-text="v.ctr.toFixed(1) + '%'"></span>
+                      </div>
+                    </td>
+                    <td style="font-weight:600" x-text="fmt(v.views)"></td>
+                    <td x-text="v.likes || 0"></td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <div class="progress" style="width:60px;margin:0">
+                          <div class="progress-bar" :class="ctrProgressClass(v.ctr)" :style="'width:' + Math.min(v.ctr * 20, 100) + '%'"></div>
+                        </div>
+                        <span style="font-size:11px;color:#94a3b8" x-text="((v.likes / Math.max(v.views, 1)) * 100).toFixed(1) + '%'"></span>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
+        <template x-if="!loading.performance && performance.length === 0">
+          <div style="padding:32px;text-align:center;color:#94a3b8;font-size:13px">
+            No video data. Click <strong>Snapshot</strong> to fetch latest stats.
+          </div>
+        </template>
+      </div>
+
+    </div>
+  </template>
 </div>
 
 <style>
-  select { padding: 8px; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; }
-  button { padding: 8px 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }
-  button:hover { background: #0052a3; }
-  table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-  table th, table td { padding: 10px; border-bottom: 1px solid #ddd; text-align: left; }
-  table th { background: #f5f5f5; font-weight: bold; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
+
+<script>
+  function analyticsPage() {
+    return {
+      channels: [],
+      selectedChannelId: null,
+      selectedChannel: null,
+      analytics: null,
+      performance: [],
+      intelligence: null,
+      sortBy: 'ctr',
+      loading: { analytics: false, performance: false, intelligence: false, snapshot: false },
+
+      async init() {
+        await this.loadChannels();
+        const saved = localStorage.getItem('jb_ch');
+        if (saved) this.selectChannel(parseInt(saved));
+      },
+
+      async loadChannels() {
+        try {
+          this.channels = await api('/channels');
+        } catch(e) { console.error(e); }
+      },
+
+      selectChannel(id) {
+        this.selectedChannelId = id;
+        this.selectedChannel = this.channels.find(c => c.id === id);
+        localStorage.setItem('jb_ch', id);
+        this.loadAll();
+      },
+
+      async loadAll() {
+        await Promise.all([this.loadAnalytics(), this.loadPerformance(), this.loadIntelligence()]);
+      },
+
+      loadingAny() {
+        return this.loading.analytics || this.loading.performance || this.loading.intelligence || this.loading.snapshot;
+      },
+
+      async loadAnalytics() {
+        this.loading.analytics = true;
+        try { this.analytics = await api('/youtube/analytics/' + this.selectedChannelId + '?days=30'); }
+        catch(e) { console.error(e); }
+        this.loading.analytics = false;
+      },
+
+      async loadPerformance() {
+        this.loading.performance = true;
+        try {
+          const r = await api('/youtube/performance/' + this.selectedChannelId);
+          this.performance = r.videos || [];
+          this.sortPerformance();
+        } catch(e) { console.error(e); }
+        this.loading.performance = false;
+      },
+
+      async loadIntelligence() {
+        this.loading.intelligence = true;
+        try { this.intelligence = await api('/ai/intelligence/' + this.selectedChannelId); }
+        catch(e) { console.error(e); }
+        this.loading.intelligence = false;
+      },
+
+      async takeSnapshot() {
+        this.loading.snapshot = true;
+        try {
+          await api('/youtube/snapshot/' + this.selectedChannelId, { method: 'POST' });
+          await Promise.all([this.loadPerformance(), this.loadIntelligence()]);
+        } catch(e) { console.error(e); }
+        this.loading.snapshot = false;
+      },
+
+      sortPerformance() {
+        this.performance.sort((a, b) => {
+          if (this.sortBy === 'ctr') return b.ctr - a.ctr;
+          if (this.sortBy === 'views') return b.views - a.views;
+          if (this.sortBy === 'likes') return (b.likes || 0) - (a.likes || 0);
+          return 0;
+        });
+      },
+
+      get maxDailyViews() {
+        if (!this.analytics?.daily) return 1;
+        return Math.max(...this.analytics.daily.map(d => d.views), 1);
+      },
+
+      get bestDay() {
+        if (!this.analytics?.daily) return { views: 0, day: '' };
+        return this.analytics.daily.reduce((best, d) => d.views > best.views ? d : best, { views: 0, day: '' });
+      },
+
+      get avgDailyViews() {
+        if (!this.analytics?.daily?.length) return 0;
+        const total = this.analytics.daily.reduce((s, d) => s + d.views, 0);
+        return Math.round(total / this.analytics.daily.length);
+      },
+
+      ctrColor(ctr) {
+        if (ctr >= 4) return '#16a34a';
+        if (ctr >= 2) return '#f59e0b';
+        return '#dc2626';
+      },
+
+      ctrLabel(ctr) {
+        if (ctr >= 4) return '✓ Good';
+        if (ctr >= 2) return '~ OK';
+        return '↓ Low';
+      },
+
+      ctrBadge(ctr) {
+        if (ctr >= 4) return '🟢';
+        if (ctr >= 2) return '🟡';
+        return '🔴';
+      },
+
+      ctrProgressClass(ctr) {
+        if (ctr >= 4) return 'bg-green';
+        if (ctr >= 2) return 'bg-yellow';
+        return 'bg-red';
+      },
+
+      progressColorClass(pct) {
+        if (pct >= 50) return 'bg-green';
+        if (pct >= 25) return 'bg-yellow';
+        return 'bg-red';
+      },
+
+      channelColor(id) {
+        const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
+        return colors[(id - 1) % colors.length];
+      },
+
+      fmt(n) {
+        if (!n) return '0';
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+        return String(n);
+      }
+    }
+  }
+</script>
 {% endblock %}

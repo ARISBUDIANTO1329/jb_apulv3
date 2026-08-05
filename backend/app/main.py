@@ -134,13 +134,19 @@ async def system_stats():
 # ── HTML Pages ──────────────────────────────────────────────────
 
 @app.get("/")
-async def page_index(request: Request):
-    """Serve Svelte frontend."""
+async def page_dashboard(request: Request):
+    """Serve Jinja2 dashboard with sidebar nav."""
+    return templates.TemplateResponse(request, "dashboard.html", {"page": "dashboard"})
+
+
+@app.get("/spa")
+async def page_spa(request: Request):
+    """Serve Svelte SPA (alternative frontend)."""
     index_file = FRONTEND_DIR / "index.html"
     if index_file.exists():
         from fastapi.responses import FileResponse
         return FileResponse(str(index_file))
-    return templates.TemplateResponse(request, "dashboard.html", {"page": "dashboard"})
+    raise HTTPException(status_code=404, detail="Svelte frontend not built")
 
 
 @app.get("/media")

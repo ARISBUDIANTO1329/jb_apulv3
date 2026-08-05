@@ -41,6 +41,7 @@ services:
     volumes:
       - ./backend:/app
       - storage_data:/app/storage
+      - ./frontend_dist:/app/frontend_dist
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
       - REDIS_URL=redis://redis:6379/0
@@ -64,6 +65,7 @@ services:
     volumes:
       - ./workers/production:/app
       - storage_data:/app/storage
+      - ./frontend_dist:/app/frontend_dist
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
       - REDIS_URL=redis://redis:6379/0
@@ -84,6 +86,7 @@ services:
     volumes:
       - ./workers/livestream:/app
       - storage_data:/app/storage
+      - ./frontend_dist:/app/frontend_dist
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
       - REDIS_URL=redis://redis:6379/0
@@ -104,6 +107,7 @@ services:
     volumes:
       - ./workers/upload:/app
       - storage_data:/app/storage
+      - ./frontend_dist:/app/frontend_dist
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
       - REDIS_URL=redis://redis:6379/0
@@ -124,6 +128,7 @@ services:
     volumes:
       - ./workers/shorts:/app
       - storage_data:/app/storage
+      - ./frontend_dist:/app/frontend_dist
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-jb_user}:${POSTGRES_PASSWORD:-jb_password}@db:5432/${POSTGRES_DB:-jb_apulv3}
       - REDIS_URL=redis://redis:6379/0

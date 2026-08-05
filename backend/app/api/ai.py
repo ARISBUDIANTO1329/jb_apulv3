@@ -703,3 +703,273 @@ async def get_context(channel_id: int, db: AsyncSession = Depends(get_db)):
     ), {"cid": channel_id})
     ctx = result.mappings().first()
     return {"channel_id": channel_id, "context": dict(ctx) if ctx else None}
+
+
+# ══════════════════════════════════════════════════════════════
+# CONTENT INTELLIGENCE — Pattern Recognition from High-CTR Videos
+# ══════════════════════════════════════════════════════════════
+
+import re
+from collections import Counter
+
+@router.get("/intelligence/{channel_id}")
+async def content_intelligence(channel_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Analyze video_analytics to find patterns.
+    Compare high-CTR videos vs low-CTR videos.
+    Returns actionable content intelligence.
+    """
+    from app.models.channel import Channel
+    from app.models.video_analytics import VideoAnalytics
+    from sqlalchemy import func
+
+    # 1. Verify channel
+    result = await db.execute(select(Channel).where(Channel.id == channel_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # 2. Get latest snapshot
+    latest = await db.execute(
+        select(func.max(VideoAnalytics.snapshot_date))
+        .where(VideoAnalytics.channel_id == channel_id)
+    )
+    snapshot_date = latest.scalar()
+    if not snapshot_date:
+        return {"success": False, "error": "No data yet. Run Snapshot first."}
+
+    # 3. Get all videos for latest snapshot
+    result = await db.execute(
+        select(VideoAnalytics)
+        .where(VideoAnalytics.channel_id == channel_id, VideoAnalytics.snapshot_date == snapshot_date)
+        .order_by(VideoAnalytics.ctr.desc())
+    )
+    all_videos = result.scalars().all()
+
+    if not all_videos:
+        return {"success": False, "error": "No videos found"}
+
+    # 4. Split into high-CTR (top 25%) and low-CTR (bottom 25%)
+    videos_sorted = sorted(all_videos, key=lambda v: v.ctr, reverse=True)
+    n = len(videos_sorted)
+    high_cutoff = max(1, n // 4)
+    low_cutoff = max(1, n // 4)
+
+    high_ctr = [v for v in videos_sorted[:high_cutoff] if v.ctr > 0]
+    low_ctr = [v for v in videos_sorted[-low_cutoff:] if v.ctr > 0]
+
+    # 5. Analyze patterns
+    def extract_patterns(videos):
+        titles = [v.video_title or "" for v in videos]
+        words = []
+        title_lengths = []
+        has_number = 0
+        has_hours = 0
+        has_question = 0
+
+        for t in titles:
+            title_lengths.append(len(t))
+            words.extend(re.findall(r'\b\w+\b', t.lower()))
+            if re.search(r'\d+', t):
+                has_number += 1
+            if re.search(r'\d+\s*(hour|hr|jam)', t.lower()):
+                has_hours += 1
+            if '?' in t:
+                has_question += 1
+
+        # Remove common stop words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                      'of', 'with', 'by', 'is', 'it', 'as', 'be', 'this', 'that', 'from',
+                      'dan', 'di', 'ke', 'yang', 'untuk', 'dengan', 'ini', 'itu', 'pada'}
+        filtered_words = [w for w in words if w not in stop_words and len(w) > 2]
+
+        return {
+            "top_keywords": Counter(filtered_words).most_common(10),
+            "avg_title_length": round(sum(title_lengths) / max(len(title_lengths), 1)),
+            "pct_with_number": round(has_number / max(len(titles), 1) * 100),
+            "pct_with_hours": round(has_hours / max(len(titles), 1) * 100),
+            "pct_with_question": round(has_question / max(len(titles), 1) * 100),
+            "sample_titles": titles[:5],
+        }
+
+    high_patterns = extract_patterns(high_ctr)
+    low_patterns = extract_patterns(low_ctr)
+
+    # 6. Compute stats
+    high_avg_ctr = round(sum(v.ctr for v in high_ctr) / max(len(high_ctr), 1), 2)
+    low_avg_ctr = round(sum(v.ctr for v in low_ctr) / max(len(low_ctr), 1), 2)
+    high_avg_views = round(sum(v.views for v in high_ctr) / max(len(high_ctr), 1))
+    low_avg_views = round(sum(v.views for v in low_ctr) / max(len(low_ctr), 1))
+    overall_avg_ctr = round(sum(v.ctr for v in all_videos if v.ctr > 0) / max(len([v for v in all_videos if v.ctr > 0]), 1), 2)
+
+    # 7. Build recommendations
+    recommendations = []
+    if high_patterns["pct_with_hours"] > low_patterns["pct_with_hours"]:
+        recommendations.append("Gunakan format '[Durasi] Jam [Sound]' di title — video high-CTR lebih banyak pakai ini")
+    if high_patterns["avg_title_length"] > low_patterns["avg_title_length"]:
+        recommendations.append(f"Title lebih panjang ({high_patterns['avg_title_length']} char) performa lebih baik dari pendek ({low_patterns['avg_title_length']} char)")
+    if high_patterns["top_keywords"]:
+        top_kw = [k[0] for k in high_patterns["top_keywords"][:5]]
+        recommendations.append(f"Keyword yang sering muncul di video bagus: {', '.join(top_kw)}")
+    if low_avg_ctr < 2.0:
+        recommendations.append(f"CTR rata-rata video bawah hanya {low_avg_ctr}% — perlu thumbnail & title overhaul")
+
+    return {
+        "success": True,
+        "channel": channel.name,
+        "snapshot_date": str(snapshot_date),
+        "total_videos": n,
+        "overall_avg_ctr": overall_avg_ctr,
+        "high_ctr": {
+            "count": len(high_ctr),
+            "avg_ctr": high_avg_ctr,
+            "avg_views": high_avg_views,
+            "patterns": high_patterns,
+        },
+        "low_ctr": {
+            "count": len(low_ctr),
+            "avg_ctr": low_avg_ctr,
+            "avg_views": low_avg_views,
+            "patterns": low_patterns,
+        },
+        "recommendations": recommendations,
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+# SMART TITLE GENERATOR — Based on High-CTR Patterns
+# ══════════════════════════════════════════════════════════════
+
+class SuggestTitlesRequest(BaseModel):
+    channel_id: int
+    topic: str
+    count: int = 5
+
+@router.post("/suggest-titles")
+async def suggest_titles(data: SuggestTitlesRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Generate title suggestions based on high-CTR patterns from this channel.
+    Uses AI provider configured in ai_settings.
+    """
+    from app.models.channel import Channel
+    from app.models.video_analytics import VideoAnalytics
+    from sqlalchemy import func
+
+    # 1. Verify channel
+    result = await db.execute(select(Channel).where(Channel.id == data.channel_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # 2. Get high-CTR titles for patterns
+    latest = await db.execute(
+        select(func.max(VideoAnalytics.snapshot_date))
+        .where(VideoAnalytics.channel_id == data.channel_id)
+    )
+    snapshot_date = latest.scalar()
+
+    high_ctr_titles = []
+    if snapshot_date:
+        result = await db.execute(
+            select(VideoAnalytics)
+            .where(VideoAnalytics.channel_id == data.channel_id, VideoAnalytics.snapshot_date == snapshot_date)
+            .order_by(VideoAnalytics.ctr.desc())
+            .limit(10)
+        )
+        top_videos = result.scalars().all()
+        high_ctr_titles = [v.video_title for v in top_videos if v.video_title and v.ctr > 2.0]
+
+    # 3. Load AI settings
+    settings_result = await db.execute(text("SELECT * FROM ai_settings ORDER BY id LIMIT 1"))
+    settings = settings_result.mappings().first()
+
+    if not settings or not settings.get("api_key") or not settings.get("base_url"):
+        # Fallback: return pattern-based suggestions without AI
+        templates = [
+            f"{data.topic} — Relaxing Sounds for Sleep & Meditation",
+            f"Hours {data.topic} for Deep Sleep | Calming Nature Sounds",
+            f"{data.topic} — Stress Relief & Focus Music",
+            f"Beautiful {data.topic} | 10 Hours Ambient Sound",
+            f"{data.topic} — Peaceful Background for Study & Work",
+        ]
+        return {
+            "success": True,
+            "method": "template",
+            "note": "AI not configured. Using template-based suggestions.",
+            "patterns_used": high_ctr_titles[:3],
+            "suggestions": [{"title": t, "score": "N/A"} for t in templates[:data.count]],
+        }
+
+    # 4. Build AI prompt
+    patterns_text = "\n".join([f"- \"{t}\" (CTR: {v.ctr}%)" for t, v in zip(high_ctr_titles, top_videos[:5])]) if high_ctr_titles else "No high-CTR data yet"
+
+    prompt = f"""You are a YouTube title optimizer for a channel in the underwater/relaxation/sleep niche.
+
+Channel: {channel.name}
+Topic: {data.topic}
+
+PROVEN HIGH-CTR TITLES from this channel:
+{patterns_text}
+
+Generate {data.count} YouTube titles that:
+1. Follow patterns from high-CTR titles above
+2. Include duration (hours) if relevant
+3. Include purpose keywords (sleep, relaxation, meditation, focus)
+4. Are SEO-friendly and click-worthy
+5. Under 60 characters if possible
+
+Return ONLY a JSON array: [{{"title": "...", "reason": "why this works"}}]"""
+
+    # 5. Call AI
+    try:
+        provider = settings.get("provider", "9router")
+        base_url = settings.get("base_url", "")
+        api_key = settings.get("api_key", "")
+        model = settings.get("model", "wf/mimo-mimo-v2.5-pro")
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 500,
+                    "temperature": 0.8,
+                },
+            )
+
+        if resp.status_code != 200:
+            raise Exception(f"AI returned {resp.status_code}: {resp.text[:200]}")
+
+        ai_response = resp.json()
+        content = ai_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        # Parse JSON from response
+        # Try to extract JSON array from response
+        json_match = re.search(r'\[.*\]', content, re.DOTALL)
+        if json_match:
+            suggestions = json.loads(json_match.group())
+        else:
+            suggestions = [{"title": content.strip(), "reason": "AI generated"}]
+
+        return {
+            "success": True,
+            "method": "ai",
+            "model": model,
+            "patterns_used": high_ctr_titles[:3],
+            "suggestions": suggestions[:data.count],
+        }
+
+    except Exception as e:
+        log.error(f"AI title generation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)[:200],
+            "fallback": True,
+            "suggestions": [{"title": f"{data.topic} — Relaxing Sounds", "reason": "fallback"}],
+        }

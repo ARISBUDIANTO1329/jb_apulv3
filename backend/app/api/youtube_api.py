@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 
 from app.db.session import get_db
 from app.models.channel import Channel
@@ -440,347 +440,181 @@ from app.models.video_analytics import VideoAnalytics
 
 
 @router.post("/snapshot/{channel_id}")
-async def take_snapshot(channel_id: int, max_results: int = 50, db: AsyncSession = Depends(get_db)):
-    """
-    Fetch per-video stats from YouTube Data API v3.
-    Stores views, likes, engagement rate into video_analytics.
-    One row per video per day.
-    """
+async def snapshot_videos(channel_id: int, db: AsyncSession = Depends(get_db)):
+    """Fetch per-video metrics from YouTube Analytics. Fallback if impressions unavailable."""
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    if not channel.youtube_channel_id:
-        return {"success": False, "error": "YouTube Channel ID not set."}
 
-    youtube, creds = _get_youtube_service(channel)
-    today = datetime.now(timezone.utc).date()
-    yesterday = today - timedelta(days=1)
+    analytics, creds = _get_analytics_service(channel)
+    youtube, _ = _get_youtube_service(channel)
 
     try:
-        # Step 1: Get all video IDs from channel via search.list
-        all_video_ids = []
-        next_page = None
-        while len(all_video_ids) < max_results:
-            batch_size = min(50, max_results - len(all_video_ids))
-            search_kwargs = dict(
-                part="snippet",
-                channelId=channel.youtube_channel_id,
-                maxResults=batch_size,
-                order="date",
-                type="video",
-            )
-            if next_page:
-                search_kwargs["pageToken"] = next_page
-            search_resp = youtube.search().list(**search_kwargs).execute()
-            items = search_resp.get("items", [])
-            if not items:
-                break
-            all_video_ids.extend([item["id"]["videoId"] for item in items])
-            next_page = search_resp.get("nextPageToken")
-            if not next_page:
-                break
+        today = datetime.now(timezone.utc).date()
+        start_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
 
-        if not all_video_ids:
-            return {"success": True, "message": "No videos found", "stored": 0}
-
-        log.info(f"Found {len(all_video_ids)} videos for channel {channel.name}")
-
-        # Step 2: Get stats for all videos (batch 50 at a time)
-        all_stats = []
-        for i in range(0, len(all_video_ids), 50):
-            batch = all_video_ids[i:i+50]
-            vids_resp = youtube.videos().list(
-                part="statistics,snippet",
-                id=",".join(batch),
+        videos_response = None
+        try:
+            videos_response = analytics.reports().query(
+                ids=f"channel=={channel.youtube_channel_id}",
+                startDate=start_date,
+                endDate=end_date,
+                metrics="views,estimatedMinutesWatched,averageViewPercentage,subscribersGained,impressions,impressionClickThroughRate",
+                dimensions="video",
+                sort="-impressionClickThroughRate",
+                maxResults=200,
             ).execute()
-            for item in vids_resp.get("items", []):
-                snippet = item.get("snippet", {})
-                stats = item.get("statistics", {})
-                all_stats.append({
-                    "video_id": item["id"],
-                    "title": snippet.get("title", ""),
-                    "thumbnail": snippet.get("thumbnails", {}).get("medium", {}).get("url", ""),
-                    "views": int(stats.get("viewCount", 0) or 0),
-                    "likes": int(stats.get("likeCount", 0) or 0),
-                    "comments": int(stats.get("commentCount", 0) or 0),
-                    "published_at": snippet.get("publishedAt", ""),
-                })
+        except Exception as e:
+            if "impressions" in str(e).lower() or "Unknown identifier" in str(e):
+                log.info("Impressions unavailable, using views fallback")
+                videos_response = analytics.reports().query(
+                    ids=f"channel=={channel.youtube_channel_id}",
+                    startDate=start_date,
+                    endDate=end_date,
+                    metrics="views,estimatedMinutesWatched,averageViewPercentage,subscribersGained",
+                    dimensions="video",
+                    sort="-views",
+                    maxResults=200,
+                ).execute()
+            else:
+                raise
 
-        # Step 3: Get yesterday's snapshots for growth calculation
-        yesterday_rows = await db.execute(text(
-            "SELECT video_id, views FROM video_analytics WHERE channel_id = :cid AND snapshot_date = :d"
-        ), {"cid": channel_id, "d": yesterday})
-        yesterday_map = {r.video_id: r.views for r in yesterday_rows}
+        vid_headers = [h["name"] for h in videos_response.get("columnHeaders", [])]
+        video_rows = []
+        for row in videos_response.get("rows", []):
+            entry = {vid_headers[i]: row[i] if i < len(row) else None for i in range(len(vid_headers))}
+            video_rows.append(entry)
 
-        # Step 4: Upsert each video
-        stored = 0
-        for v in all_stats:
-            vid = v["video_id"]
-            views = v["views"]
-            likes = v["likes"]
-            # Engagement rate: (likes / views) * 100 — proxy for CTR
-            engagement_rate = round((likes / views * 100), 2) if views > 0 else 0.0
-            # Views growth: how many views gained since yesterday
-            prev_views = yesterday_map.get(vid, 0)
-            views_growth = max(0, views - prev_views)
+        if not video_rows:
+            return {"success": True, "total_videos": 0, "avg_ctr": 0}
 
-            stmt = pg_insert(VideoAnalytics).values(
-                channel_id=channel_id,
-                video_id=vid,
-                video_title=v["title"],
-                thumbnail_url=v["thumbnail"],
-                snapshot_date=today,
-                impressions=views_growth,  # repurpose: daily views growth
-                ctr=engagement_rate,       # repurpose: engagement rate %
-                views=views,
-                watch_minutes=0,
-                avg_view_percentage=0,
-                likes=likes,
-                subs_gained=v["comments"],  # repurpose: comments count
-            ).on_conflict_do_update(
-                constraint="uq_video_snapshot",
-                set_={
-                    "impressions": views_growth,
-                    "ctr": engagement_rate,
-                    "views": views,
-                    "likes": likes,
-                    "subs_gained": v["comments"],
-                    "video_title": v["title"],
-                    "thumbnail_url": v["thumbnail"],
-                },
+        video_ids = [v.get("video") for v in video_rows if v.get("video")]
+        video_details = {}
+        if video_ids:
+            for i in range(0, len(video_ids), 50):
+                batch = video_ids[i:i+50]
+                vids_resp = youtube.videos().list(part="snippet", id=",".join(batch)).execute()
+                for item in vids_resp.get("items", []):
+                    vid_id = item["id"]
+                    video_details[vid_id] = {
+                        "title": item["snippet"].get("title", ""),
+                        "thumbnail": item["snippet"].get("thumbnails", {}).get("medium", {}).get("url", ""),
+                    }
+
+        from sqlalchemy.dialects.postgresql import insert
+        records = []
+        for v in video_rows:
+            vid_id = v.get("video", "")
+            if not vid_id:
+                continue
+            ctr_val = float(v.get("impressionClickThroughRate", 0)) if v.get("impressionClickThroughRate") else 0.0
+            records.append({
+                "channel_id": channel_id,
+                "video_id": vid_id,
+                "video_title": video_details.get(vid_id, {}).get("title", ""),
+                "thumbnail_url": video_details.get(vid_id, {}).get("thumbnail", ""),
+                "snapshot_date": today,
+                "impressions": int(v.get("impressions", 0)) if v.get("impressions") else 0,
+                "ctr": ctr_val,
+                "views": int(v.get("views", 0)) if v.get("views") else 0,
+                "watch_minutes": float(v.get("estimatedMinutesWatched", 0)) if v.get("estimatedMinutesWatched") else 0.0,
+                "avg_view_percentage": float(v.get("averageViewPercentage", 0)) if v.get("averageViewPercentage") else 0.0,
+                "likes": 0,
+                "subs_gained": int(v.get("subscribersGained", 0)) if v.get("subscribersGained") else 0,
+            })
+
+        if records:
+            stmt = insert(VideoAnalytics).values(records)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["video_id", "snapshot_date"],
+                set_={col.name: getattr(stmt.excluded, col.name) for col in VideoAnalytics.__table__.columns if col.name not in ["id", "created_at"]}
             )
             await db.execute(stmt)
-            stored += 1
+            await db.commit()
 
-        await db.commit()
+        ctr_vals = [float(v.get("impressionClickThroughRate", 0)) for v in video_rows if v.get("impressionClickThroughRate")]
+        avg_ctr = round(sum(ctr_vals) / len(ctr_vals), 2) if ctr_vals else 0
 
-        # Update token if refreshed
         if creds.token != channel.access_token:
             channel.access_token = creds.token
             await db.commit()
 
-        return {
-            "success": True,
-            "stored": stored,
-            "date": str(today),
-            "channel": channel.name,
-            "method": "data_api_v3",
-        }
+        return {"success": True, "total_videos": len(video_rows), "avg_ctr": avg_ctr, "snapshot_date": str(today)}
 
     except Exception as e:
         log.error(f"Snapshot error: {e}")
         raise HTTPException(status_code=500, detail=str(e)[:200])
 
+# ── Performance: Ranked Videos by CTR ──────────────────────────
 
 @router.get("/performance/{channel_id}")
-async def get_performance(
-    channel_id: int,
-    sort: str = "ctr",
-    order: str = "desc",
-    limit: int = 20,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Return video performance ranking from latest snapshot.
-    Sort by: ctr, views, impressions, watch_minutes
-    """
+async def get_video_performance(channel_id: int, sort: str = "ctr", order: str = "desc", limit: int = 50, db: AsyncSession = Depends(get_db)):
+    """Query video_analytics for latest snapshot. Return ranked videos."""
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-
-    # Get latest snapshot date
-    latest = await db.execute(text(
-        "SELECT MAX(snapshot_date) FROM video_analytics WHERE channel_id = :cid"
-    ), {"cid": channel_id})
-    latest_date = latest.scalar()
-    if not latest_date:
-        return {"success": False, "error": "No snapshot data. Take a snapshot first.", "videos": []}
-
-    # Sort column mapping
-    sort_map = {
-        "ctr": "ctr",
-        "views": "views",
-        "impressions": "impressions",
-        "watch_minutes": "watch_minutes",
-    }
-    sort_col = sort_map.get(sort, "ctr")
-    order_dir = "DESC" if order == "desc" else "ASC"
-
-    rows = await db.execute(text(f"""
-        SELECT video_id, video_title, thumbnail_url,
-               impressions, ctr, views, watch_minutes, likes,
-               avg_view_percentage, subs_gained
-        FROM video_analytics
-        WHERE channel_id = :cid AND snapshot_date = :d
-        ORDER BY {sort_col} {order_dir}
-        LIMIT :lim
-    """), {"cid": channel_id, "d": latest_date, "lim": limit})
-
-    videos = []
-    for r in rows:
-        engagement = r.ctr
-        alert = "low" if engagement < 1.0 else "medium" if engagement < 2.0 else "high"
-        recommendation = ""
-        if alert == "low":
-            recommendation = "⚠️ Low engagement. Consider changing thumbnail or title."
-        elif alert == "medium":
-            recommendation = "📊 Medium engagement. Test new thumbnail design."
-        
-        videos.append({
-            "video_id": r.video_id,
-            "title": r.video_title,
-            "thumbnail_url": r.thumbnail_url,
-            "impressions": r.impressions,
-            "engagement": round(engagement, 2),
-            "views": r.views,
-            "watch_minutes": round(r.watch_minutes, 1),
-            "avg_view_percentage": r.avg_view_percentage,
-            "likes": r.likes,
-            "engagement_alert": alert,
-            "recommendation": recommendation,
-            "youtube_url": f"https://youtube.com/watch?v={r.video_id}",
-        })
-
-    return {
-        "success": True,
-        "channel": channel.name,
-        "channel_id": channel_id,
-        "snapshot_date": str(latest_date),
-        "sort": sort,
-        "order": order,
-        "total": len(videos),
-        "videos": videos,
-    }
-
-
-@router.get("/video-trend/{channel_id}/{video_id}")
-async def get_video_trend(channel_id: int, video_id: str, days: int = 7, db: AsyncSession = Depends(get_db)):
-    """Get 7-day views trend for a video — track growth/stagnation."""
-    result = await db.execute(select(Channel).where(Channel.id == channel_id))
-    channel = result.scalar_one_or_none()
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    # Get last N days snapshots for this video
-    rows = await db.execute(text("""
-        SELECT snapshot_date, views, likes, ctr 
-        FROM video_analytics 
-        WHERE channel_id = :cid AND video_id = :vid
-        ORDER BY snapshot_date DESC
-        LIMIT :days
-    """), {"cid": channel_id, "vid": video_id, "days": days})
-
-    snapshots = [dict(r._mapping) for r in rows]
-    snapshots.reverse()  # oldest first
-
-    if not snapshots:
-        return {"success": False, "error": "No trend data", "video_id": video_id}
-
-    # Calculate trend
-    first_views = snapshots[0]["views"]
-    last_views = snapshots[-1]["views"]
-    growth = last_views - first_views
-    growth_pct = round((growth / max(first_views, 1)) * 100, 1)
-
-    # Trend direction
-    if growth_pct > 5:
-        trend = "up"
-    elif growth_pct < -5:
-        trend = "down"
-    else:
-        trend = "flat"
-
-    return {
-        "success": True,
-        "video_id": video_id,
-        "channel": channel.name,
-        "snapshots": [{"date": str(s["snapshot_date"]), "views": s["views"], "likes": s["likes"]} for s in snapshots],
-        "first_views": first_views,
-        "last_views": last_views,
-        "growth": growth,
-        "growth_pct": growth_pct,
-        "trend": trend,
-        "recommendation": "📈 Growing — keep this style" if trend == "up" else "📉 Declining — change thumbnail" if trend == "down" else "➡️ Stable — hold strategy",
-    }
-
-
-@router.get("/best-upload-time/{channel_id}")
-async def get_best_upload_time(channel_id: int, db: AsyncSession = Depends(get_db)):
-    """Analyze best day/hour to upload based on high-engagement videos."""
-    result = await db.execute(select(Channel).where(Channel.id == channel_id))
-    channel = result.scalar_one_or_none()
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    youtube, _ = _get_youtube_service(channel)
 
     try:
-        # Get videos with highest engagement
-        rows = await db.execute(text("""
-            SELECT video_id FROM video_analytics
-            WHERE channel_id = :cid
-            ORDER BY ctr DESC
-            LIMIT 10
-        """), {"cid": channel_id})
-        
-        video_ids = [r[0] for r in rows]
-        if not video_ids:
-            return {"success": False, "error": "No video data", "videos": []}
+        latest_snapshot = await db.execute(
+            select(func.max(VideoAnalytics.snapshot_date))
+            .where(VideoAnalytics.channel_id == channel_id)
+        )
+        snapshot_date = latest_snapshot.scalar()
 
-        # Get video details including publishedAt
-        vids_resp = youtube.videos().list(
-            part="snippet",
-            id=",".join(video_ids[:10]),
-        ).execute()
+        if not snapshot_date:
+            return {"success": False, "error": "No snapshot data yet", "videos": []}
 
-        # Analyze publish times
-        publish_times = []
-        for item in vids_resp.get("items", []):
-            pub_at = item["snippet"].get("publishedAt", "")
-            if pub_at:
-                from datetime import datetime
-                dt = datetime.fromisoformat(pub_at.replace("Z", "+00:00"))
-                day_name = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][dt.weekday()]
-                hour = dt.hour
-                publish_times.append({
-                    "day": day_name,
-                    "hour": hour,
-                    "date": pub_at[:10],
-                })
+        query = select(VideoAnalytics).where(
+            VideoAnalytics.channel_id == channel_id,
+            VideoAnalytics.snapshot_date == snapshot_date,
+        )
 
-        if not publish_times:
-            return {"success": False, "error": "No publish times found"}
+        sort_col = {
+            "ctr": VideoAnalytics.ctr,
+            "views": VideoAnalytics.views,
+            "impressions": VideoAnalytics.impressions,
+            "watch_minutes": VideoAnalytics.watch_minutes,
+        }.get(sort, VideoAnalytics.ctr)
 
-        # Count by day
-        day_counts = {}
-        for pt in publish_times:
-            day = pt["day"]
-            day_counts[day] = day_counts.get(day, 0) + 1
+        if order == "asc":
+            query = query.order_by(sort_col.asc())
+        else:
+            query = query.order_by(sort_col.desc())
 
-        best_day = max(day_counts.items(), key=lambda x: x[1])[0]
+        query = query.limit(limit)
+        result = await db.execute(query)
+        videos = result.scalars().all()
 
-        # Count by hour
-        hour_counts = {}
-        for pt in publish_times:
-            hour = pt["hour"]
-            hour_counts[hour] = hour_counts.get(hour, 0) + 1
-
-        best_hour = max(hour_counts.items(), key=lambda x: x[1])[0]
+        video_list = [
+            {
+                "video_id": v.video_id,
+                "title": v.video_title or "Unknown",
+                "thumbnail_url": v.thumbnail_url or "",
+                "impressions": v.impressions,
+                "ctr": v.ctr,
+                "views": v.views,
+                "watch_minutes": v.watch_minutes,
+                "avg_view_percentage": v.avg_view_percentage,
+                "likes": v.likes,
+                "subs_gained": v.subs_gained,
+            }
+            for v in videos
+        ]
 
         return {
             "success": True,
             "channel": channel.name,
-            "analysis_videos": len(publish_times),
-            "best_day": best_day,
-            "best_hour": best_hour,
-            "day_distribution": day_counts,
-            "hour_distribution": hour_counts,
-            "recommendation": f"📅 Upload on {best_day} at {best_hour:02d}:00 for best engagement",
-            "publish_times": publish_times,
+            "channel_id": channel_id,
+            "snapshot_date": str(snapshot_date),
+            "sort": sort,
+            "order": order,
+            "total_videos": len(video_list),
+            "videos": video_list,
         }
 
     except Exception as e:
-        log.error(f"Best upload time error: {e}")
-        raise HTTPException(status_code=500, detail=str(e)[:200])
+        log.error(f"Performance query error: {e}")
+        raise HTTPException(status_code=500, detail="Query failed")

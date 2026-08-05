@@ -2,7 +2,7 @@ import shutil
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -74,9 +74,7 @@ class ChannelResponse(BaseModel):
     monetization_status: Optional[str] = None
     monetization_date: Optional[datetime] = None
     monetization_notes: Optional[str] = None
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat() if v else None}
-        from_attributes = True
+model_config = ConfigDict(from_attributes=True, json_encoders={datetime: lambda v: v.isoformat() if v else None})
 
 
 async def _get_last_activity(db: AsyncSession, channel_id: int):

@@ -45,6 +45,9 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/storage", StaticFiles(directory="/app/storage"), name="storage")
+FRONTEND_DIR = Path("/app/frontend_dist")
+if FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="frontend_assets")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # Include routers
@@ -131,7 +134,12 @@ async def system_stats():
 # ── HTML Pages ──────────────────────────────────────────────────
 
 @app.get("/")
-async def page_dashboard(request: Request):
+async def page_index(request: Request):
+    """Serve Svelte frontend."""
+    index_file = FRONTEND_DIR / "index.html"
+    if index_file.exists():
+        from fastapi.responses import FileResponse
+        return FileResponse(str(index_file))
     return templates.TemplateResponse(request, "dashboard.html", {"page": "dashboard"})
 
 

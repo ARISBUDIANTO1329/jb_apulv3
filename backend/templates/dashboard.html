@@ -7,7 +7,7 @@
   {# ── Channel Overview Cards ── #}
   <div class="stats-row stats-3" style="margin-bottom:20px">
     <template x-for="ch in channels" :key="ch.id">
-      <div class="stat-card" style="cursor:pointer" @mouseenter="loadGoogleStatus(ch.id)" :style="selectedChannelId === ch.id ? 'border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.1)' : ''" @click="selectChannel(ch.id)">
+      <div class="stat-card" style="cursor:pointer" :style="selectedChannelId === ch.id ? 'border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.1)' : ''" @click="selectChannel(ch.id)">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
           <div style="width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:12px;color:#fff" :style="'background:' + channelColor(ch.id)">
             <span x-text="ch.name.substring(0,2).toUpperCase()"></span>
@@ -17,10 +17,9 @@
             <div style="font-size:11px;color:#94a3b8" x-text="(ch.niche || 'No niche') + ' • ' + (ch.video_count || 0) + ' videos'"></div>
           </div>
         </div>
-        <div style="display:flex;gap:16px;justify-content:space-between;align-items:start;margin-top:8px">
-          <div style="display:flex;gap:16px;flex:1">
-            <div>
-              <div class="stat-label">SUBS</div>
+        <div style="display:flex;gap:16px;margin-top:8px">
+          <div>
+            <div class="stat-label">SUBS</div>
             <div style="font-size:18px;font-weight:800;color:#0f172a" x-text="fmt(ch.subscriber_count)"></div>
           </div>
           <div>
@@ -28,26 +27,11 @@
             <div style="font-size:18px;font-weight:800;color:#0f172a" x-text="fmt(ch.total_views)"></div>
           </div>
         </div>
-        
-        <!-- Google status row -->
-        <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0">
-          <template x-if="googleStatuses && googleStatuses[ch.id]">
-            <span x-text="googleStatuses[ch.id].status === 'valid' ? '✅' : googleStatuses[ch.id].status === 'expired' ? '⚠️' : '❌'" style="font-size:16px"></span>
-            <span style="font-size:11px;color:#64748b;flex:1" x-text="googleStatuses[ch.id].status_message"></span>
-            <a :href="`/api/auth/google/connect-redirect/${ch.id}`" style="font-size:11px;padding:4px 8px;border-radius:6px;text-decoration:none" :class="googleStatuses[ch.id].connected ? 'btn' : 'btn-primary'" x-text="googleStatuses[ch.id].connected ? '🔄' : '🔗'"></a>
-          </template>
-        </div>
       </div>
     </template>
   </div>
 
   {# ── Empty State ── #}
-
-      <div style="text-align:center;padding:20px;color:#94a3b8;font-size:13px">
-        Loading...
-      </div>
-    </template>
-  </div>
   <template x-if="!selectedChannelId">
     <div class="section" style="text-align:center;padding:48px 20px">
       <div style="font-size:42px;margin-bottom:12px">📊</div>
@@ -303,7 +287,6 @@
 <script>
   function analyticsPage() {
     return {
-      googleStatuses: {},
       channels: [],
       selectedChannelId: null,
       selectedChannel: null,
@@ -355,16 +338,6 @@
           this.sortPerformance();
         } catch(e) { console.error(e); }
         this.loading.performance = false;
-      },
-
-      async loadGoogleStatus(channelId) {
-        try {
-          const resp = await api('/auth/google/status/' + channelId);
-          if (!this.googleStatuses) this.googleStatuses = {};
-          this.googleStatuses[channelId] = await resp.json();
-        } catch(e) {
-          console.error('Failed to load Google status:', e);
-        }
       },
 
       async loadIntelligence() {

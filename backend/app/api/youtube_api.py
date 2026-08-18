@@ -14,7 +14,6 @@ from sqlalchemy import select, text, func
 from app.db.session import get_db
 from app.models.channel import Channel
 from app.models.video_analytics import VideoAnalytics
-from app.services.google_token_service import GoogleTokenService
 
 router = APIRouter()
 log = logging.getLogger("youtube_api")
@@ -23,20 +22,56 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
 
-def _get_youtube_service(channel, db):
-    """Build authenticated YouTube Data API service using token service."""
-    import asyncio
-    loop = asyncio.get_event_loop()
-    youtube, creds = loop.run_until_complete(GoogleTokenService.get_youtube_client(channel, db))
-    return youtube, creds
+def _get_youtube_service(channel):
+    """Build authenticated YouTube Data API service."""
+    import httplib2
+    from googleapiclient.discovery import build
+    from google.oauth2.credentials import Credentials
+
+    if not channel.access_token:
+        raise HTTPException(status_code=400, detail="Channel not connected to YouTube. Please re-authorize.")
+
+    creds = Credentials(
+        token=channel.access_token,
+        refresh_token=channel.refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+    )
+
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(httplib2.Http())
+        except Exception as e:
+            raise HTTPException(status_code=401, detail=f"Token refresh failed: {e}")
+
+    return build("youtube", "v3", credentials=creds), creds
 
 
-def _get_analytics_service(channel, db):
-    """Build authenticated YouTube Analytics API service using token service."""
-    import asyncio
-    loop = asyncio.get_event_loop()
-    analytics, creds = loop.run_until_complete(GoogleTokenService.get_analytics_client(channel, db))
-    return analytics, creds
+def _get_analytics_service(channel):
+    """Build authenticated YouTube Analytics API service."""
+    import httplib2
+    from googleapiclient.discovery import build
+    from google.oauth2.credentials import Credentials
+
+    if not channel.access_token:
+        raise HTTPException(status_code=400, detail="Channel not connected to YouTube.")
+
+    creds = Credentials(
+        token=channel.access_token,
+        refresh_token=channel.refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+    )
+
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(httplib2.Http())
+        except Exception as e:
+            raise HTTPException(status_code=401, detail=f"Token refresh failed: {e}")
+
+    return build("youtubeAnalytics", "v2", credentials=creds), creds
 
 
 # ── List Videos ───────────────────────────────────────────────
@@ -402,7 +437,6 @@ async def channel_info(channel_id: int, db: AsyncSession = Depends(get_db)):
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.models.video_analytics import VideoAnalytics
-from app.services.google_token_service import GoogleTokenService
 
 
 @router.post("/snapshot/{channel_id}")

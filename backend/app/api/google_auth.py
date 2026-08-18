@@ -12,7 +12,6 @@ from datetime import datetime, timezone, timedelta
 
 from app.db.session import get_db
 from app.models.channel import Channel
-from app.services.google_token_service import GoogleTokenService
 
 router = APIRouter()
 
@@ -179,23 +178,19 @@ async def google_callback(
 
 @router.get("/status/{channel_id}")
 async def google_status(channel_id: int, db: AsyncSession = Depends(get_db)):
-    """Check Google OAuth status for a channel with detailed info."""
+    """Check Google OAuth status for a channel."""
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel tidak ditemukan")
 
-    # Use token service to get comprehensive status
-    status_info = GoogleTokenService.get_token_status(channel)
-    
+    has_token = bool(channel.access_token)
+    expires_at = channel.token_expires_at
+    is_expired = expires_at and expires_at < datetime.now(timezone.utc) if expires_at else True
+
     return {
-        "channel_id": channel.id,
-        "channel_name": channel.name,
-        "connected": status_info["connected"],
-        "email": status_info["email"],
-        "expires_at": status_info["expires_at"].isoformat() if status_info["expires_at"] else None,
-        "expires_in_hours": status_info["expires_in_hours"],
-        "status": status_info["status"],
-        "status_message": status_info["status_message"],
-        "last_checked": channel.token_checked_at.isoformat() if channel.token_checked_at else None,
+        "connected": has_token and not is_expired,
+        "google_email": channel.email or "",
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "is_expired": is_expired,
     }

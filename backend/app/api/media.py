@@ -92,7 +92,7 @@ async def get_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """Get count per asset group for a channel."""
-    from app.models.metadata import MetadataTitlePool, MetadataDescriptionPool, MetadataTagPool, MetadataPlaylistPool, MetadataPlaylistPool
+    from app.models.metadata import MetadataTitlePool, MetadataDescriptionPool, MetadataTagPool, MetadataPlaylistPool
     
     result = await db.execute(
         select(
@@ -352,79 +352,6 @@ async def upload_media(
         await db.flush()
 
         # Parse metadata files and insert into pool tables
-        if asset_type == "metadata" and metadata_category:
-            from app.models.metadata import MetadataTitlePool, MetadataDescriptionPool, MetadataTagPool, MetadataPlaylistPool
-            text = (content or b"").decode("utf-8", errors="replace")
-            lines = [l.strip() for l in text.splitlines() if l.strip()]
-            
-            if metadata_category == "title_bank":
-                # Delete existing titles for this channel
-                existing = await db.execute(
-                    select(MetadataTitlePool).where(MetadataTitlePool.channel_id == channel_id)
-                )
-                for item in existing.scalars().all():
-                    await db.delete(item)
-                
-                # Insert new titles
-                for line in lines:
-                    title = MetadataTitlePool(channel_id=channel_id, title=line)
-                    db.add(title)
-                log.info(f"Inserted {len(lines)} titles for channel {channel_id}")
-            
-            elif metadata_category == "description_bank":
-                # Delete existing descriptions
-                existing = await db.execute(
-                    select(MetadataDescriptionPool).where(MetadataDescriptionPool.channel_id == channel_id)
-                )
-                for item in existing.scalars().all():
-                    await db.delete(item)
-                
-                # Insert new descriptions
-                for line in lines:
-                    desc = MetadataDescriptionPool(channel_id=channel_id, description=line)
-                    db.add(desc)
-                log.info(f"Inserted {len(lines)} descriptions for channel {channel_id}")
-            
-            elif metadata_category == "tag_bank":
-                # Delete existing tags
-                existing = await db.execute(
-                    select(MetadataTagPool).where(MetadataTagPool.channel_id == channel_id)
-                )
-                for item in existing.scalars().all():
-                    await db.delete(item)
-                
-                # Insert new tags
-                for line in lines:
-                    tag = MetadataTagPool(channel_id=channel_id, tags=line)
-                    db.add(tag)
-                log.info(f"Inserted {len(lines)} tags for channel {channel_id}")
-            
-            elif metadata_category == "playlist_bank":
-                # Delete existing playlists
-                existing = await db.execute(
-                    select(MetadataPlaylistPool).where(MetadataPlaylistPool.channel_id == channel_id)
-                )
-                for item in existing.scalars().all():
-                    await db.delete(item)
-
-                # Insert new playlists
-                for line in lines:
-                    playlist = MetadataPlaylistPool(channel_id=channel_id, playlist_name=line)
-                    db.add(playlist)
-                log.info(f"Inserted {len(lines)} playlists for channel {channel_id}")
-
-            # Store category in MediaItem for filtering
-            media_item.category = metadata_category
-            await db.flush()
-
-            uploaded.append({
-                "id": media_item.id,
-                "filename": safe_name,
-                "original_name": orig,
-                "size_mb": round(file_size / 1024 / 1024, 2),
-                "category": metadata_category,
-            })
-
         uploaded.append({
             "id": media_item.id,
             "filename": safe_name,
@@ -602,7 +529,7 @@ async def delete_media(media_id: str, db: AsyncSession = Depends(get_db)):
     """Delete a single media item. Supports both integer IDs and metadata string IDs."""
     # Handle metadata string IDs (e.g., "title_196", "desc_42", "tag_7", "playlist_5")
     if "_" in str(media_id):
-        from app.models.metadata import MetadataTitlePool, MetadataDescriptionPool, MetadataTagPool, MetadataPlaylistPool, MetadataPlaylistPool
+        from app.models.metadata import MetadataTitlePool, MetadataDescriptionPool, MetadataTagPool, MetadataPlaylistPool
 
         parts = str(media_id).split("_", 1)
         prefix = parts[0]

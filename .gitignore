@@ -47,3 +47,4 @@ logs/
 *.zip
 *.tar.gz
 *.sql
+*.backup*

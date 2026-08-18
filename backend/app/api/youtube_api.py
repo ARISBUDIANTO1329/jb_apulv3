@@ -14,6 +14,7 @@ from sqlalchemy import select, text, func
 from app.db.session import get_db
 from app.models.channel import Channel
 from app.models.video_analytics import VideoAnalytics
+from app.services.google_token_service import get_youtube_client, get_analytics_client
 
 router = APIRouter()
 log = logging.getLogger("youtube_api")
@@ -22,56 +23,6 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
 
-def _get_youtube_service(channel):
-    """Build authenticated YouTube Data API service."""
-    import httplib2
-    from googleapiclient.discovery import build
-    from google.oauth2.credentials import Credentials
-
-    if not channel.access_token:
-        raise HTTPException(status_code=400, detail="Channel not connected to YouTube. Please re-authorize.")
-
-    creds = Credentials(
-        token=channel.access_token,
-        refresh_token=channel.refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=GOOGLE_CLIENT_ID,
-        client_secret=GOOGLE_CLIENT_SECRET,
-    )
-
-    if creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(httplib2.Http())
-        except Exception as e:
-            raise HTTPException(status_code=401, detail=f"Token refresh failed: {e}")
-
-    return build("youtube", "v3", credentials=creds), creds
-
-
-def _get_analytics_service(channel):
-    """Build authenticated YouTube Analytics API service."""
-    import httplib2
-    from googleapiclient.discovery import build
-    from google.oauth2.credentials import Credentials
-
-    if not channel.access_token:
-        raise HTTPException(status_code=400, detail="Channel not connected to YouTube.")
-
-    creds = Credentials(
-        token=channel.access_token,
-        refresh_token=channel.refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=GOOGLE_CLIENT_ID,
-        client_secret=GOOGLE_CLIENT_SECRET,
-    )
-
-    if creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(httplib2.Http())
-        except Exception as e:
-            raise HTTPException(status_code=401, detail=f"Token refresh failed: {e}")
-
-    return build("youtubeAnalytics", "v2", credentials=creds), creds
 
 
 # ── List Videos ───────────────────────────────────────────────
@@ -87,7 +38,7 @@ async def list_videos(channel_id: int, max_results: int = 50, db: AsyncSession =
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    youtube, creds = _get_youtube_service(channel)
+    youtube, creds = await get_youtube_client(channel, db)
 
     try:
         # Step 1: Get channel's upload playlist
@@ -198,7 +149,7 @@ async def video_stats(channel_id: int, video_id: str, db: AsyncSession = Depends
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    youtube, creds = _get_youtube_service(channel)
+    youtube, creds = await get_youtube_client(channel, db)
 
     try:
         response = youtube.videos().list(
@@ -262,7 +213,7 @@ async def get_analytics(
     if not channel.youtube_channel_id:
         return {"success": False, "error": "YouTube Channel ID not set. Please add it in channel settings."}
 
-    analytics, creds = _get_analytics_service(channel)
+    analytics, creds = await get_analytics_client(channel, db)
 
     end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -380,7 +331,7 @@ async def channel_info(channel_id: int, db: AsyncSession = Depends(get_db)):
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    youtube, creds = _get_youtube_service(channel)
+    youtube, creds = await get_youtube_client(channel, db)
 
     try:
         response = youtube.channels().list(
@@ -437,6 +388,7 @@ async def channel_info(channel_id: int, db: AsyncSession = Depends(get_db)):
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.models.video_analytics import VideoAnalytics
+from app.services.google_token_service import get_youtube_client, get_analytics_client
 
 
 @router.post("/snapshot/{channel_id}")
@@ -447,8 +399,8 @@ async def snapshot_videos(channel_id: int, db: AsyncSession = Depends(get_db)):
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    analytics, creds = _get_analytics_service(channel)
-    youtube, _ = _get_youtube_service(channel)
+    analytics, creds = await get_analytics_client(channel, db)
+    youtube, _ = await get_youtube_client(channel, db)
 
     try:
         today = datetime.now(timezone.utc).date()

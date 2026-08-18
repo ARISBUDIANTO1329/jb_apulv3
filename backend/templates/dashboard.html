@@ -188,10 +188,19 @@ function onChannelChange() {
   renderDashboard();
 }
 
-loadStats();
-loadTokenHealth();
-setInterval(loadStats, 30000);
-setInterval(loadTokenHealth, 60000);
-renderDashboard();
+function initDashboard() {
+  loadStats();
+  loadTokenHealth();
+  setInterval(loadStats, 30000);
+  setInterval(loadTokenHealth, 60000);
+  renderDashboard();
+}
+
+if (typeof channels !== 'undefined' && channels.length) {
+  initDashboard();
+} else {
+  window.addEventListener('channel-changed', initDashboard, { once: true });
+  setTimeout(() => { if (channels && channels.length) initDashboard(); }, 1500);
+}
 </script>
 {% endblock %}

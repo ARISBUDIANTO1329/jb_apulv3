@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 from app.db.session import get_db
 from app.models.channel import Channel
+from app.services.google_token_service import get_youtube_client, try_refresh_token
 from app.services.google_token_service import try_refresh_token
 
 router = APIRouter()
@@ -82,6 +83,47 @@ async def google_connect_redirect(channel_id: int, db: AsyncSession = Depends(ge
 
     return RedirectResponse(url=auth_url)
 
+
+
+async def _fill_channel_snapshot(channel, db):
+    """Fetch and save channel stats from YouTube after OAuth connect."""
+    try:
+        youtube, creds = await get_youtube_client(channel, db)
+        response = youtube.channels().list(
+            part="snippet,statistics",
+            mine=True,
+        ).execute()
+
+        if not response.get("items"):
+            if channel.youtube_channel_id:
+                response = youtube.channels().list(
+                    part="snippet,statistics",
+                    id=channel.youtube_channel_id,
+                ).execute()
+
+        if response.get("items"):
+            ch = response["items"][0]
+            stats = ch.get("statistics", {})
+            snippet = ch.get("snippet", {})
+
+            channel.youtube_channel_id = ch["id"]
+            channel.subscriber_count = int(stats.get("subscriberCount", 0))
+            channel.total_views = int(stats.get("viewCount", 0))
+            channel.video_count = int(stats.get("videoCount", 0))
+
+            # Update channel title if available
+            if snippet.get("title"):
+                # Only update if title missing (don't overwrite user-set name)
+                if not channel.name or channel.name.startswith("Channel #"):
+                    channel.name = snippet["title"]
+
+            await db.commit()
+            await db.refresh(channel)
+            return True
+    except Exception as e:
+        import logging
+        logging.getLogger("google_auth").error(f"Snapshot failed for channel {channel.id}: {e}")
+        return False
 
 @router.get("/callback")
 async def google_callback(
@@ -162,6 +204,9 @@ async def google_callback(
     channel.token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
     channel.email = google_email
     await db.commit()
+
+    # Fetch channel stats from YouTube (like v2 fillYouTubeChannelSnapshot)
+    await _fill_channel_snapshot(channel, db)
 
     # Success page
     return HTMLResponse(f"""

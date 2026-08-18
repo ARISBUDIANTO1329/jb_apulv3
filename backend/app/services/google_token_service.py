@@ -1,6 +1,7 @@
 """
 Google Token Service - Auto-refresh + save to DB.
 Based on v2 GoogleChannelTokenService pattern.
+Fixed: use creds.refresh() without httplib2
 """
 
 import os
@@ -41,7 +42,6 @@ def _save_refreshed_tokens(channel, creds):
 
 async def get_youtube_client(channel, db):
     """Get authenticated YouTube Data API client with auto-refresh + DB save."""
-    import httplib2
     from googleapiclient.discovery import build
     from fastapi import HTTPException
 
@@ -53,7 +53,7 @@ async def get_youtube_client(channel, db):
     if creds.expired and creds.refresh_token:
         try:
             log.info(f"Refreshing token for channel {channel.id}")
-            creds.refresh(httplib2.Http())
+            creds.refresh()
             _save_refreshed_tokens(channel, creds)
             await db.commit()
             await db.refresh(channel)
@@ -71,7 +71,6 @@ async def get_youtube_client(channel, db):
 
 async def get_analytics_client(channel, db):
     """Get authenticated YouTube Analytics API client with auto-refresh + DB save."""
-    import httplib2
     from googleapiclient.discovery import build
     from fastapi import HTTPException
 
@@ -83,7 +82,7 @@ async def get_analytics_client(channel, db):
     if creds.expired and creds.refresh_token:
         try:
             log.info(f"Refreshing token for channel {channel.id}")
-            creds.refresh(httplib2.Http())
+            creds.refresh()
             _save_refreshed_tokens(channel, creds)
             await db.commit()
             await db.refresh(channel)
@@ -98,15 +97,15 @@ async def get_analytics_client(channel, db):
 
     return build("youtubeAnalytics", "v2", credentials=creds), creds
 
+
 async def try_refresh_token(channel, db):
     """Try to refresh an expired token. Returns (success, message)."""
     if not channel.refresh_token:
         return False, "No refresh token available. Please reconnect Google."
 
     try:
-        import httplib2
         creds = _build_credentials(channel)
-        creds.refresh(httplib2.Http())
+        creds.refresh()
         _save_refreshed_tokens(channel, creds)
         await db.commit()
         await db.refresh(channel)

@@ -104,17 +104,29 @@ async def try_refresh_token(channel, db):
         return False, "No refresh token available. Please reconnect Google."
 
     try:
+        import time
         creds = _build_credentials(channel)
-        creds.refresh()
+        last_error = ""
+        for attempt in range(2):
+            try:
+                creds.refresh()
+                break
+            except Exception as e:
+                last_error = str(e)
+                if attempt == 0:
+                    time.sleep(0.5)  # 500ms delay before retry (like v2)
+                else:
+                    raise
         _save_refreshed_tokens(channel, creds)
         await db.commit()
         await db.refresh(channel)
         log.info(f"Token auto-refreshed for channel {channel.id}")
         return True, "Token refreshed successfully"
     except Exception as e:
-        log.error(f"Token refresh failed for channel {channel.id}: {e}")
+        msg = str(e) or last_error
+        log.error(f"Token refresh failed for channel {channel.id}: {msg}")
         channel.token_status = "error"
-        channel.token_error = str(e)
+        channel.token_error = msg
         channel.token_checked_at = datetime.now(timezone.utc)
         await db.commit()
-        return False, f"Refresh failed: {e}"
+        return False, f"Refresh failed: {msg}"

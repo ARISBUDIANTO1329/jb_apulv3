@@ -23,11 +23,13 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "https://jb1.apul.my.id/api/auth/google/callback")
 
 SCOPES = [
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "openid",
+    "email",
+    "profile",
+    "https://www.googleapis.com/auth/youtube",
     "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
-    "https://www.googleapis.com/auth/yt-analytics-monetary.readonly",
 ]
 
 
@@ -49,6 +51,7 @@ async def google_connect(channel_id: int, db: AsyncSession = Depends(get_db)):
         f"scope={scopes_str}&"
         f"access_type=offline&"
         f"prompt=consent&"
+        f"include_granted_scopes=true&"
         f"state={channel_id}"
     )
 
@@ -78,6 +81,7 @@ async def google_connect_redirect(channel_id: int, db: AsyncSession = Depends(ge
         f"scope={scopes_str}&"
         f"access_type=offline&"
         f"prompt=consent&"
+        f"include_granted_scopes=true&"
         f"state={channel_id}"
     )
 

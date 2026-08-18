@@ -26,15 +26,6 @@
   <div class="stat-card"><div class="stat-label">Channels</div><div class="stat-value" id="s-ch">0</div></div>
 </div>
 
-<!-- Token Health Warning -->
-<div id="token-warning" style="display:none" class="card mb-4" style="border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.05);">
-  <div class="flex items-center gap-2 text-red-400">
-    <span>⚠️</span>
-    <span class="font-bold">Token Google Bermasalah</span>
-    <span class="text-sm text-slate-400" id="token-warning-text"></span>
-  </div>
-</div>
-
 <!-- Channel Cards -->
 <div id="ch-cards" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
 
@@ -62,20 +53,7 @@ function updateChannelAnalytics() {
   document.getElementById('total-videos-sub').textContent = channels.length + ' channel' + (channels.length > 1 ? 's' : '');
 }
 
-async function loadTokenHealth() {
-  try {
-    const r = await api('/channels/token-health');
-    const el = document.getElementById('token-warning');
-    const text = document.getElementById('token-warning-text');
-    if (r.any_error) {
-      const issues = r.channels.filter(c => c.needs_reconnect).map(c => c.channel_name + ': ' + c.message).join(', ');
-      text.textContent = issues;
-      el.style.display = 'block';
-    } else {
-      el.style.display = 'none';
-    }
-  } catch(e) {}
-}
+
 
 async function checkGoogleStatus(channelId) {
   try {
@@ -98,6 +76,13 @@ async function checkGoogleStatus(channelId) {
       linkClass = 'bg-slate-100 hover:bg-slate-200 text-slate-700';
       if (r.google_email) {
         statusText += ' • ' + r.google_email;
+      }
+      if (r.expires_in_hours !== null && r.expires_in_hours !== undefined) {
+        if (r.expires_in_hours > 1) {
+          statusText += ' ⏳ ' + r.expires_in_hours + 'h';
+        } else {
+          statusText += ' ⏳ <1h';
+        }
       }
     } else if (r.connected && r.is_expired) {
       statusIcon = '⚠️';
@@ -180,9 +165,7 @@ function onChannelChange() {
 
 function initDashboard() {
   updateChannelAnalytics();
-  loadTokenHealth();
-  setInterval(loadTokenHealth, 60000);
-  renderDashboard();
+      renderDashboard();
 }
 
 if (typeof channels !== 'undefined' && channels.length) {

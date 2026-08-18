@@ -32,6 +32,71 @@
   </div>
 
   {# ── Empty State ── #}
+
+  {# ── Google Connection Status Card ── #}
+  <div class="card" style="margin-bottom:24px" x-data="{ googleStatus: null }" x-init="
+    async function loadGoogleStatus() {
+      if (!selectedChannelId) return;
+      try {
+        const resp = await fetch(`/api/auth/google/status/${selectedChannelId}`);
+        googleStatus = await resp.json();
+      } catch(e) {
+        console.error('Failed to load Google status:', e);
+      }
+    }
+    loadGoogleStatus();
+    $watch('selectedChannelId', () => loadGoogleStatus());
+  ">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#0f172a">🔐 Google Connection</div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px">OAuth & API Access</div>
+      </div>
+      <template x-if="googleStatus">
+        <span x-text="googleStatus.status === 'valid' ? '✅' : googleStatus.status === 'expired' ? '⚠️' : '❌'" style="font-size:24px"></span>
+      </template>
+    </div>
+
+    <template x-if="googleStatus">
+      <div>
+        <div style="display:grid;gap:8px;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;font-size:13px">
+            <span style="color:#64748b">Status:</span>
+            <span :style="googleStatus.status === 'valid' ? 'color:#10b981;font-weight:600' : googleStatus.status === 'expired' ? 'color:#f59e0b;font-weight:600' : 'color:#64748b'" x-text="googleStatus.status_message"></span>
+          </div>
+          <template x-if="googleStatus.connected">
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <span style="color:#64748b">Email:</span>
+              <span style="color:#0f172a;font-weight:500" x-text="googleStatus.email || '-'"></span>
+            </div>
+          </template>
+          <template x-if="googleStatus.expires_in_hours !== null">
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <span style="color:#64748b">Expires:</span>
+              <span style="color:#0f172a;font-weight:500" x-text="googleStatus.expires_in_hours > 0 ? 'in ' + googleStatus.expires_in_hours + 'h' : 'Expired'"></span>
+            </div>
+          </template>
+        </div>
+
+        <template x-if="!googleStatus.connected">
+          <a :href="`/api/auth/google/connect-redirect/${selectedChannelId}`" class="btn-primary" style="width:100%;justify-content:center;text-decoration:none">
+            🔗 Connect Google
+          </a>
+        </template>
+        <template x-if="googleStatus.connected">
+          <a :href="`/api/auth/google/connect-redirect/${selectedChannelId}`" class="btn" style="width:100%;justify-content:center;text-decoration:none">
+            🔄 Reconnect
+          </a>
+        </template>
+      </div>
+    </template>
+
+    <template x-if="!googleStatus">
+      <div style="text-align:center;padding:20px;color:#94a3b8;font-size:13px">
+        Loading...
+      </div>
+    </template>
+  </div>
   <template x-if="!selectedChannelId">
     <div class="section" style="text-align:center;padding:48px 20px">
       <div style="font-size:42px;margin-bottom:12px">📊</div>

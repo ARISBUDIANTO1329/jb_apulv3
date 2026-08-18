@@ -316,9 +316,6 @@ async def upload_media(
             errors.append({"filename": file.filename, "error": msg})
             continue
 
-        # Read content
-        content = await file.read()
-
         # Generate safe filename
         orig = file.filename or "upload"
         ext = Path(orig).suffix.lower()
@@ -327,8 +324,19 @@ async def upload_media(
             base = "file"
         safe_name = f"{base}-{secrets.token_hex(4)}{ext}"
 
-        # Save to storage
-        file_path = storage.save_file(channel_id, asset_type, safe_name, content)
+        # Stream file to disk directly (no full memory load)
+        file.file.seek(0)
+        file_path = storage.save_file_stream(channel_id, asset_type, safe_name, file.file)
+        file_size = file.size or 0
+        if not file_size:
+            import os
+            file_size = os.path.getsize(file_path)
+
+        # For metadata parsing (small text files) read into memory
+        content = None
+        if asset_type == "metadata":
+            file.file.seek(0)
+            content = file.file.read()
 
         # Create DB record
         media_item = MediaItem(
@@ -338,7 +346,7 @@ async def upload_media(
             file_path=file_path,
             asset_type=asset_type,
             mime=file.content_type,
-            file_size=len(content),
+            file_size=file_size,
         )
         db.add(media_item)
         await db.flush()
@@ -346,7 +354,7 @@ async def upload_media(
         # Parse metadata files and insert into pool tables
         if asset_type == "metadata" and metadata_category:
             from app.models.metadata import MetadataTitlePool, MetadataDescriptionPool, MetadataTagPool, MetadataPlaylistPool
-            text = content.decode("utf-8", errors="replace")
+            text = (content or b"").decode("utf-8", errors="replace")
             lines = [l.strip() for l in text.splitlines() if l.strip()]
             
             if metadata_category == "title_bank":
@@ -413,7 +421,7 @@ async def upload_media(
                 "id": media_item.id,
                 "filename": safe_name,
                 "original_name": orig,
-                "size_mb": round(len(content) / 1024 / 1024, 2),
+                "size_mb": round(file_size / 1024 / 1024, 2),
                 "category": metadata_category,
             })
 
@@ -421,7 +429,7 @@ async def upload_media(
             "id": media_item.id,
             "filename": safe_name,
             "original_name": orig,
-            "size_mb": round(len(content) / 1024 / 1024, 2),
+            "size_mb": round(file_size / 1024 / 1024, 2),
         })
 
     return {

@@ -64,6 +64,14 @@ class StorageService:
         path.write_bytes(content)
         return str(path)
 
+    def save_file_stream(self, channel_id: int, asset_type: str, filename: str, source) -> str:
+        """Stream a file-like object to disk in chunks (no full memory load)."""
+        import shutil
+        path = self.get_channel_path(channel_id, asset_type) / filename
+        with open(path, 'wb') as dst:
+            shutil.copyfileobj(source, dst, length=1024 * 1024)  # 1MB chunks
+        return str(path)
+
     def delete_file(self, file_path: str) -> bool:
         """Delete a file. Handles both absolute and relative paths."""
         try:

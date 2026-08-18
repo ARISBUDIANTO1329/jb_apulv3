@@ -2,28 +2,26 @@
 {% block title %}📊 Dashboard{% endblock %}
 
 {% block content %}
-<!-- System Stats -->
+<!-- Channel Analytics -->
 <div class="stats-row stats-3">
   <div class="stat-card">
-    <div class="stat-label">🖥️ CPU Usage</div>
-    <div class="stat-value" id="cpu-val">-</div>
-    <div class="progress"><div class="progress-bar bg-green" id="cpu-bar" style="width:0%"></div></div>
+    <div class="stat-label">📊 Total Subscribers</div>
+    <div class="stat-value" id="total-subs">-</div>
+    <div class="stat-sub" id="total-subs-sub">Across all channels</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">💾 Memory</div>
-    <div class="stat-value" id="mem-val">-</div>
-    <div class="stat-sub" id="mem-sub">-</div>
-    <div class="progress"><div class="progress-bar bg-green" id="mem-bar" style="width:0%"></div></div>
+    <div class="stat-label">👁️ Total Views</div>
+    <div class="stat-value" id="total-views">-</div>
+    <div class="stat-sub" id="total-views-sub">Across all channels</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">💿 Disk</div>
-    <div class="stat-value" id="disk-val">-</div>
-    <div class="stat-sub" id="disk-sub">-</div>
-    <div class="progress"><div class="progress-bar bg-green" id="disk-bar" style="width:0%"></div></div>
+    <div class="stat-label">🎬 Total Videos</div>
+    <div class="stat-value" id="total-videos">-</div>
+    <div class="stat-sub" id="total-videos-sub">Across all channels</div>
   </div>
 </div>
 
-<!-- Channel Stats -->
+<!-- Channel Count -->
 <div class="stats-row stats-1">
   <div class="stat-card"><div class="stat-label">Channels</div><div class="stat-value" id="s-ch">0</div></div>
 </div>
@@ -43,23 +41,25 @@
 <script>
 const COLORS = ['#2563eb','#7c3aed','#ec4899','#f43f5e','#f97316','#eab308','#059669','#0d9488','#0891b2','#4f46e5'];
 
-async function loadStats() {
-  try {
-    const s = await api('/system/stats');
-    document.getElementById('cpu-val').textContent = s.cpu_percent + '%';
-    document.getElementById('cpu-bar').style.width = s.cpu_percent + '%';
-    document.getElementById('cpu-bar').className = 'progress-bar bg-' + progressColor(s.cpu_percent);
+function updateChannelAnalytics() {
+  if (!channels || !channels.length) {
+    document.getElementById('total-subs').textContent = '0';
+    document.getElementById('total-views').textContent = '0';
+    document.getElementById('total-videos').textContent = '0';
+    return;
+  }
 
-    document.getElementById('mem-val').textContent = s.memory.percent + '%';
-    document.getElementById('mem-sub').textContent = s.memory.used_mb + ' / ' + s.memory.total_mb + ' MB';
-    document.getElementById('mem-bar').style.width = s.memory.percent + '%';
-    document.getElementById('mem-bar').className = 'progress-bar bg-' + progressColor(s.memory.percent);
+  const totalSubs = channels.reduce((sum, ch) => sum + (ch.subscriber_count || 0), 0);
+  const totalViews = channels.reduce((sum, ch) => sum + (ch.total_views || 0), 0);
+  const totalVideos = channels.reduce((sum, ch) => sum + (ch.video_count || 0), 0);
 
-    document.getElementById('disk-val').textContent = s.disk.percent + '%';
-    document.getElementById('disk-sub').textContent = s.disk.used + ' / ' + s.disk.total;
-    document.getElementById('disk-bar').style.width = s.disk.percent + '%';
-    document.getElementById('disk-bar').className = 'progress-bar bg-' + progressColor(s.disk.percent);
-  } catch(e) {}
+  document.getElementById('total-subs').textContent = fmt(totalSubs);
+  document.getElementById('total-views').textContent = fmt(totalViews);
+  document.getElementById('total-videos').textContent = fmt(totalVideos);
+
+  document.getElementById('total-subs-sub').textContent = channels.length + ' channel' + (channels.length > 1 ? 's' : '');
+  document.getElementById('total-views-sub').textContent = channels.length + ' channel' + (channels.length > 1 ? 's' : '');
+  document.getElementById('total-videos-sub').textContent = channels.length + ' channel' + (channels.length > 1 ? 's' : '');
 }
 
 async function loadTokenHealth() {
@@ -81,21 +81,21 @@ async function checkGoogleStatus(channelId) {
   try {
     const r = await api('/auth/google/status/' + channelId);
     const statusEl = document.getElementById('google-status-' + channelId);
-    const btnEl = document.getElementById('google-btn-' + channelId);
-    if (!statusEl || !btnEl) return;
+    const linkEl = document.getElementById('google-link-' + channelId);
+    if (!statusEl || !linkEl) return;
 
     let statusIcon = '❌';
     let statusText = 'Not connected';
     let statusColor = 'text-slate-500';
-    let btnText = '🔗 Connect';
-    let btnClass = 'bg-blue-500 hover:bg-blue-600 text-white';
+    let linkText = '🔗 Connect';
+    let linkClass = 'bg-blue-500 hover:bg-blue-600 text-white';
 
     if (r.connected && !r.is_expired) {
       statusIcon = '✅';
       statusText = 'Connected';
       statusColor = 'text-emerald-600';
-      btnText = '🔄 Reconnect';
-      btnClass = 'bg-slate-100 hover:bg-slate-200 text-slate-700';
+      linkText = '🔄 Reconnect';
+      linkClass = 'bg-slate-100 hover:bg-slate-200 text-slate-700';
       if (r.google_email) {
         statusText += ' • ' + r.google_email;
       }
@@ -103,29 +103,15 @@ async function checkGoogleStatus(channelId) {
       statusIcon = '⚠️';
       statusText = 'Token expired';
       statusColor = 'text-amber-600';
-      btnText = '🔄 Reconnect';
-      btnClass = 'bg-amber-500 hover:bg-amber-600 text-white';
+      linkText = '🔄 Reconnect';
+      linkClass = 'bg-amber-500 hover:bg-amber-600 text-white';
     }
 
     statusEl.innerHTML = `<span>${statusIcon}</span><span class="ml-1 ${statusColor} text-xs">${statusText}</span>`;
-    btnEl.textContent = btnText;
-    btnEl.className = 'px-2 py-1 rounded text-xs font-semibold transition-all ' + btnClass;
+    linkEl.textContent = linkText;
+    linkEl.className = 'px-2 py-1 rounded text-xs font-semibold transition-all ' + linkClass;
   } catch(e) {
     console.error('Failed to check Google status:', e);
-  }
-}
-
-async function reconnectGoogle(channelId) {
-  try {
-    const r = await api('/auth/google/connect/' + channelId);
-    if (r.auth_url) {
-      window.open(r.auth_url, '_blank');
-      setTimeout(() => checkGoogleStatus(channelId), 2000);
-    } else {
-      alert('Gagal membuat URL auth');
-    }
-  } catch(e) {
-    alert('Error: ' + e.message);
   }
 }
 
@@ -135,6 +121,7 @@ function renderDashboard() {
   const box = document.getElementById('ch-cards');
   if (!channels.length) {
     box.innerHTML = '<div class="card text-center py-12 text-slate-500"><p class="text-lg mb-2">Belum ada channel</p><p class="text-sm">Klik "+ Tambah Channel" untuk memulai</p></div>';
+    updateChannelAnalytics();
     return;
   }
 
@@ -170,13 +157,16 @@ function renderDashboard() {
           <div id="google-status-${ch.id}" class="flex items-center">
             <span class="text-slate-400 text-xs">Loading...</span>
           </div>
-          <button id="google-btn-${ch.id}" onclick="reconnectGoogle(${ch.id})" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all">
+          <a id="google-link-${ch.id}" href="/api/auth/google/connect-redirect/${ch.id}" target="_blank" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all">
             Connect
-          </button>
+          </a>
         </div>
       </div>
     `;
   }).join('');
+
+  // Update channel analytics
+  updateChannelAnalytics();
 
   // Check Google status for all channels
   channels.forEach(ch => {
@@ -189,9 +179,8 @@ function onChannelChange() {
 }
 
 function initDashboard() {
-  loadStats();
+  updateChannelAnalytics();
   loadTokenHealth();
-  setInterval(loadStats, 30000);
   setInterval(loadTokenHealth, 60000);
   renderDashboard();
 }

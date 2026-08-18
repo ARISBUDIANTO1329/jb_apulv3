@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 from app.db.session import get_db
 from app.models.channel import Channel
+from app.services.google_token_service import try_refresh_token
 
 router = APIRouter()
 
@@ -178,7 +179,7 @@ async def google_callback(
 
 @router.get("/status/{channel_id}")
 async def google_status(channel_id: int, db: AsyncSession = Depends(get_db)):
-    """Check Google OAuth status for a channel."""
+    """Check Google OAuth status for a channel. Auto-refresh if expired."""
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
     channel = result.scalar_one_or_none()
     if not channel:
@@ -187,6 +188,15 @@ async def google_status(channel_id: int, db: AsyncSession = Depends(get_db)):
     has_token = bool(channel.access_token)
     expires_at = channel.token_expires_at
     is_expired = expires_at and expires_at < datetime.now(timezone.utc) if expires_at else True
+
+    # If expired but has refresh_token, try auto-refresh
+    if is_expired and has_token and channel.refresh_token:
+        success, msg = await try_refresh_token(channel, db)
+        if success:
+            expires_at = channel.token_expires_at
+            is_expired = False
+        else:
+            log.error(f"Auto-refresh failed for channel {channel_id}: {msg}")
 
     return {
         "connected": has_token and not is_expired,
